@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+IntiLearnAI_env/
+
+# Env
+.env
+
+# Models & Data
+models/
+data/
+embeddings/
+
+# VSCode
+.vscode/
