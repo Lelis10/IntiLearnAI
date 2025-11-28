@@ -13,3 +13,7 @@ python-dotenv
 PyPDF2  # Para extraer PDFs
 soundfile  # Para audio en TTS
 onnxruntime  # Opcional para Kokoro ONNX
+accelerate
+llama-cpp-python
+huggingface_hub
+python-multipart
