@@ -175,18 +175,14 @@ const StudentChat = () => {
 
         } catch (error) {
             console.error("Error sending message:", error);
-            setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessageIndex = newMessages.length - 1;
-                if (lastMessageIndex >= 0) {
-                    newMessages[lastMessageIndex] = {
-                        ...newMessages[lastMessageIndex],
-                        text: 'Lo siento, hubo un error de conexión.',
-                        isStreaming: false,
-                    };
+            setMessages(prev => ([
+                ...prev,
+                {
+                    role: 'assistant',
+                    text: 'Lo siento, hubo un error de conexión.',
+                    isStreaming: false,
                 }
-                return newMessages;
-            });
+            ]));
         } finally {
             setLoading(false);
         }
