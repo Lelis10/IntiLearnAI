@@ -47,7 +47,20 @@ class RAGEngine:
         
         return results
 
-    def query(self, user_query, stream=False):
+    def _format_history(self, history):
+        if not history:
+            return ""
+
+        formatted_messages = []
+        for message in history:
+            role = message.get("role", "")
+            text = message.get("text", "")
+            speaker = "Usuario" if role == "user" else "Inti"
+            formatted_messages.append(f"{speaker}: {text}")
+
+        return "\n".join(formatted_messages)
+
+    def query(self, user_query, history=None, stream=False):
         # 0. Check for greetings/chitchat (Simple heuristic)
         greetings = ["hola", "hola!", "buenos dias", "buenas tardes", "buenas noches", "gracias", "adios", "hi", "hello"]
         cleaned_query = user_query.lower().strip().replace("¡", "").replace("!", "")
@@ -58,25 +71,35 @@ class RAGEngine:
             # 1. Retrieve Context
             retrieved_docs = self.retrieve(user_query)
         context_text = "\n\n".join([doc["text"] for doc in retrieved_docs])
-        
+        history_text = self._format_history(history)
+
+        persona_message = (
+            "Tu nombre es Inti, un asistente educativo en español. "
+            "Responde siempre de forma clara, breve y amable, usando ejemplos sencillos."
+        )
+
         # 2. Construct Prompt
+        prompt_sections = [persona_message]
+
+        if history_text:
+            prompt_sections.append(f"Historial reciente:\n{history_text}")
+
         if context_text:
-            prompt = f"""Usa la siguiente información de contexto para responder a la pregunta del usuario. 
-Si la respuesta no está en el contexto, usa tu conocimiento general pero menciónalo.
-Responde en un tono didáctico y amable, adecuado para niños o estudiantes.
-
-Contexto:
-{context_text}
-
-Pregunta: {user_query}
-
-Respuesta:"""
+            prompt_sections.append(
+                "Usa la siguiente información de contexto para responder a la pregunta del usuario.\n"
+                "Si la respuesta no está en el contexto, usa tu conocimiento general pero menciónalo.\n"
+                "Contexto:\n"
+                f"{context_text}"
+            )
         else:
-            prompt = f"""Responde a la siguiente pregunta en un tono didáctico y amable, adecuado para niños o estudiantes.
+            prompt_sections.append(
+                "Responde a la siguiente pregunta en un tono didáctico y amable, adecuado para niños o estudiantes."
+            )
 
-Pregunta: {user_query}
+        prompt_sections.append(f"Pregunta: {user_query}")
+        prompt_sections.append("Respuesta:")
 
-Respuesta:"""
+        prompt = "\n\n".join(prompt_sections)
 
         # 3. Generate Response
         response = self.llm.generate_response(prompt, stream=stream)

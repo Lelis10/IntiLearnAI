@@ -29,6 +29,7 @@ const StudentChat = () => {
         if (!input.trim()) return;
 
         const userMessage = { role: 'user', text: input };
+        const historyPayload = [...messages, userMessage].map(({ role, text }) => ({ role, text }));
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setLoading(true);
@@ -40,7 +41,7 @@ const StudentChat = () => {
             const response = await fetch('http://localhost:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: input, subject: selectedSubject })
+                body: JSON.stringify({ message: input, subject: selectedSubject, history: historyPayload })
             });
 
             const reader = response.body.getReader();
