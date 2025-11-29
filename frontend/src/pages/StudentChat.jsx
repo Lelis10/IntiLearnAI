@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, User, Bot, ArrowLeft } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { InlineMath, BlockMath } from 'react-katex';
+import 'katex/dist/katex.min.css';
 
 const StudentChat = () => {
     const location = useLocation();
@@ -11,6 +13,7 @@ const StudentChat = () => {
         {
             role: 'assistant',
             text: `¡Hola! Soy Inti ☀️. Tu guía para ${selectedSubject.toLowerCase()}. ¿Qué quieres aprender hoy?`,
+            isStreaming: false,
         }
     ]);
     const [input, setInput] = useState('');
@@ -25,6 +28,49 @@ const StudentChat = () => {
         scrollToBottom();
     }, [messages]);
 
+    const renderMessageContent = (msg) => {
+        if (msg.role !== 'assistant' || msg.isStreaming) {
+            return msg.text;
+        }
+
+        const parts = [];
+        const regex = /(\$\$[^$]+\$\$|\$[^$]+\$)/g;
+        let lastIndex = 0;
+        let match;
+
+        while ((match = regex.exec(msg.text)) !== null) {
+            if (match.index > lastIndex) {
+                parts.push({ type: 'text', content: msg.text.slice(lastIndex, match.index) });
+            }
+
+            const content = match[0];
+
+            if (content.startsWith('$$')) {
+                parts.push({ type: 'block', content: content.slice(2, -2) });
+            } else {
+                parts.push({ type: 'inline', content: content.slice(1, -1) });
+            }
+
+            lastIndex = regex.lastIndex;
+        }
+
+        if (lastIndex < msg.text.length) {
+            parts.push({ type: 'text', content: msg.text.slice(lastIndex) });
+        }
+
+        return parts.map((part, index) => {
+            if (part.type === 'block') {
+                return <BlockMath key={index} math={part.content} />;
+            }
+
+            if (part.type === 'inline') {
+                return <InlineMath key={index} math={part.content} />;
+            }
+
+            return <span key={index}>{part.content}</span>;
+        });
+    };
+
     const sendMessage = async () => {
         if (!input.trim()) return;
 
@@ -35,7 +81,7 @@ const StudentChat = () => {
         setLoading(true);
 
         // Create a placeholder for the bot response
-        setMessages(prev => [...prev, { role: 'assistant', text: '' }]);
+        setMessages(prev => [...prev, { role: 'assistant', text: '', isStreaming: true }]);
 
         try {
             const response = await fetch('http://localhost:8000/chat', {
@@ -73,11 +119,30 @@ const StudentChat = () => {
                 }
             }
 
+            setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessageIndex = newMessages.length - 1;
+                if (lastMessageIndex >= 0) {
+                    newMessages[lastMessageIndex] = {
+                        ...newMessages[lastMessageIndex],
+                        isStreaming: false,
+                    };
+                }
+                return newMessages;
+            });
+
         } catch (error) {
             console.error("Error sending message:", error);
             setMessages(prev => {
                 const newMessages = [...prev];
-                newMessages[newMessages.length - 1].text = 'Lo siento, hubo un error de conexión.';
+                const lastMessageIndex = newMessages.length - 1;
+                if (lastMessageIndex >= 0) {
+                    newMessages[lastMessageIndex] = {
+                        ...newMessages[lastMessageIndex],
+                        text: 'Lo siento, hubo un error de conexión.',
+                        isStreaming: false,
+                    };
+                }
                 return newMessages;
             });
         } finally {
@@ -141,7 +206,7 @@ const StudentChat = () => {
                                     : 'bg-white text-[#8a3b11] rounded-bl-none border border-orange-100'
                                     }`}
                             >
-                                {msg.text}
+                                {renderMessageContent(msg)}
                             </div>
 
                             {msg.role === 'user' && (
