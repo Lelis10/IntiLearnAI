@@ -1,9 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, User, Bot } from 'lucide-react';
+import { Send, Mic, User, Bot, ArrowLeft } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const StudentChat = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const selectedSubject = location.state?.subject || 'Tema libre';
+
     const [messages, setMessages] = useState([
-        { role: 'assistant', text: '¡Hola! Soy Inti ☀️. Tu asistente educativo oficial. ¿En qué puedo ayudarte hoy?' }
+        {
+            role: 'assistant',
+            text: `¡Hola! Soy Inti ☀️. Tu guía para ${selectedSubject.toLowerCase()}. ¿Qué quieres aprender hoy?`,
+        }
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -32,7 +40,7 @@ const StudentChat = () => {
             const response = await fetch('http://localhost:8000/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: input })
+                body: JSON.stringify({ message: input, subject: selectedSubject })
             });
 
             const reader = response.body.getReader();
@@ -77,56 +85,78 @@ const StudentChat = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
-            {/* Government Header */}
-            <header className="bg-[#003366] p-4 shadow-md flex items-center justify-between px-8">
-                <div className="flex items-center gap-4">
-                    <div className="bg-white p-2 rounded-full">
-                        <span className="text-2xl">🇪🇨</span>
+        <div className="min-h-screen bg-gradient-to-b from-orange-50 via-amber-50 to-white flex flex-col font-sans text-[#8a3b11]">
+            <header className="bg-white/80 backdrop-blur border-b border-orange-100 shadow-sm">
+                <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => navigate('/student')}
+                            className="p-2 rounded-full border border-orange-200 text-orange-700 hover:bg-orange-50 transition"
+                        >
+                            <ArrowLeft size={18} />
+                        </button>
+                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-white font-bold text-lg shadow">
+                            ☀️
+                        </div>
+                        <div>
+                            <p className="text-xs uppercase tracking-[0.25em] text-orange-700/70 font-semibold">IntiLearn</p>
+                            <h1 className="text-lg font-bold text-[#9c3f0f]">Chat educativo en español</h1>
+                        </div>
                     </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-white tracking-wide">MINISTERIO DE EDUCACIÓN</h1>
-                        <p className="text-xs text-gray-300 tracking-widest uppercase">Plataforma IntiLearnAI</p>
+                    <div className="flex items-center gap-3 bg-white border border-orange-100 rounded-full px-4 py-2 text-sm shadow-sm">
+                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        Conectado | {selectedSubject}
                     </div>
                 </div>
             </header>
 
-            {/* Chat Area */}
-            <div className="flex-1 p-6 overflow-y-auto space-y-6 max-w-5xl mx-auto w-full">
-                {messages.map((msg, index) => (
-                    <div
-                        key={index}
-                        className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                    >
-                        {msg.role === 'assistant' && (
-                            <div className="w-10 h-10 rounded-full bg-[#003366] flex items-center justify-center text-white shrink-0">
-                                <Bot size={20} />
-                            </div>
-                        )}
-
-                        <div
-                            className={`max-w-[75%] p-5 rounded-lg text-md leading-relaxed shadow-sm ${msg.role === 'user'
-                                ? 'bg-blue-600 text-white rounded-tr-none'
-                                : 'bg-white text-gray-800 rounded-tl-none border border-gray-200'
-                                }`}
-                        >
-                            {msg.text}
-                        </div>
-
-                        {msg.role === 'user' && (
-                            <div className="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 shrink-0">
-                                <User size={20} />
-                            </div>
-                        )}
+            <div className="flex-1 p-6 space-y-4 max-w-5xl mx-auto w-full">
+                <div className="bg-white/80 backdrop-blur rounded-2xl border border-orange-100 shadow-sm px-5 py-3 text-sm text-orange-800/80 flex items-center justify-between flex-wrap gap-3">
+                    <div>
+                        <p className="font-semibold text-[#9c3f0f]">Tema elegido: {selectedSubject}</p>
+                        <p>Comparte tu duda, un ejercicio o un texto. Inti responderá con ejemplos y pasos claros.</p>
                     </div>
-                ))}
-                <div ref={messagesEndRef} />
+                    <div className="flex gap-2 text-xs">
+                        <span className="px-3 py-1 rounded-full bg-orange-50 border border-orange-100">Respuestas en español</span>
+                        <span className="px-3 py-1 rounded-full bg-orange-50 border border-orange-100">Explicaciones breves</span>
+                    </div>
+                </div>
+
+                <div className="flex-1 p-6 overflow-y-auto space-y-6 bg-white rounded-2xl border border-orange-100 shadow-inner max-h-[60vh]">
+                    {messages.map((msg, index) => (
+                        <div
+                            key={index}
+                            className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                            {msg.role === 'assistant' && (
+                                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-white shrink-0 shadow">
+                                    <Bot size={20} />
+                                </div>
+                            )}
+
+                            <div
+                                className={`max-w-[75%] p-5 rounded-2xl text-md leading-relaxed shadow-sm ${msg.role === 'user'
+                                    ? 'bg-orange-500 text-white rounded-br-none'
+                                    : 'bg-white text-[#8a3b11] rounded-bl-none border border-orange-100'
+                                    }`}
+                            >
+                                {msg.text}
+                            </div>
+
+                            {msg.role === 'user' && (
+                                <div className="w-10 h-10 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center shrink-0 border border-orange-200">
+                                    <User size={20} />
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                    <div ref={messagesEndRef} />
+                </div>
             </div>
 
-            {/* Input Area */}
-            <div className="p-6 bg-white border-t border-gray-200 shadow-lg">
+            <div className="p-6 bg-white/90 backdrop-blur border-t border-orange-100 shadow-lg">
                 <div className="flex gap-4 max-w-4xl mx-auto">
-                    <button className="p-4 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200 transition-colors">
+                    <button className="p-4 bg-orange-50 rounded-xl text-orange-700 hover:bg-orange-100 transition-colors border border-orange-100">
                         <Mic size={24} />
                     </button>
                     <input
@@ -134,18 +164,18 @@ const StudentChat = () => {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                        placeholder="Escribe tu pregunta aquí..."
-                        className="flex-1 p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#003366] text-lg"
+                        placeholder={`Escribe tu pregunta sobre ${selectedSubject.toLowerCase()} aquí...`}
+                        className="flex-1 p-4 border border-orange-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 text-lg bg-white/80"
                     />
                     <button
                         onClick={sendMessage}
                         disabled={loading}
-                        className="p-4 bg-[#003366] text-white rounded-lg hover:bg-[#002244] disabled:opacity-50 transition-colors shadow-md"
+                        className="p-4 bg-gradient-to-r from-orange-500 to-amber-400 text-white rounded-xl hover:from-orange-600 hover:to-amber-500 disabled:opacity-50 transition-colors shadow-md"
                     >
                         <Send size={24} />
                     </button>
                 </div>
-                <p className="text-center text-xs text-gray-400 mt-2">IntiLearnAI puede cometer errores. Verifica la información importante.</p>
+                <p className="text-center text-xs text-orange-700/70 mt-2">IntiLearn puede cometer errores. Verifica la información importante.</p>
             </div>
         </div>
     );

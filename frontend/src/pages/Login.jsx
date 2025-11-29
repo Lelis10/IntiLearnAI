@@ -1,56 +1,96 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, GraduationCap } from 'lucide-react';
+import { User, GraduationCap, Sparkles } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50 font-sans">
-      {/* Government Header */}
-      <header className="bg-[#003366] p-6 shadow-md">
-        <div className="max-w-6xl mx-auto flex items-center gap-4">
-          <div className="bg-white p-2 rounded-full">
-            <span className="text-3xl">🇪🇨</span>
+    <div className="min-h-screen bg-gradient-to-b from-orange-50 via-amber-50 to-white text-[#9c3f0f] font-sans">
+      <header className="max-w-6xl mx-auto px-6 py-8 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-400 flex items-center justify-center text-white font-bold text-2xl shadow-lg">
+            ☀️
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-wide">MINISTERIO DE EDUCACIÓN</h1>
-            <p className="text-sm text-gray-300 tracking-widest uppercase">Plataforma IntiLearnAI</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-orange-700/70 font-semibold">Plataforma Educativa</p>
+            <h1 className="text-3xl font-black text-[#9c3f0f]">IntiLearn</h1>
+            <p className="text-sm text-orange-700/70">El sol que ilumina tu aprendizaje</p>
           </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-orange-800/80 bg-white border border-orange-100 rounded-full px-4 py-2 shadow-sm">
+          <Sparkles className="w-4 h-4 text-orange-500" />
+          Español Latinoamérica
         </div>
       </header>
 
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="bg-white p-10 rounded-lg shadow-lg max-w-lg w-full text-center border-t-4 border-[#003366]">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">Bienvenido</h2>
-          <p className="text-gray-500 mb-10">Seleccione su perfil para ingresar al sistema.</p>
-
-          <div className="space-y-6">
-            <button
-              onClick={() => navigate('/student')}
-              className="w-full flex items-center justify-center gap-4 bg-[#0055A4] hover:bg-[#003366] text-white text-lg font-semibold py-5 rounded-lg transition-all shadow-md group"
-            >
-              <div className="bg-white/20 p-2 rounded-full group-hover:bg-white/30 transition-colors">
-                <User size={28} />
+      <main className="max-w-5xl mx-auto px-6 pb-16">
+        <div className="bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl border border-orange-100 overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-2">
+            <div className="p-10 space-y-6 bg-gradient-to-br from-orange-100/80 via-white to-amber-50">
+              <p className="inline-flex items-center gap-2 bg-white text-orange-700 px-3 py-1 rounded-full text-xs font-semibold shadow-sm border border-orange-100">
+                ✨ Nueva experiencia Inti
+              </p>
+              <h2 className="text-4xl font-black leading-tight text-[#9c3f0f]">Explora, pregunta y aprende con calor de sol.</h2>
+              <p className="text-orange-800/80 text-lg leading-relaxed">
+                Selecciona tu rol para continuar. Si eres estudiante podrás escoger la materia que deseas aprender.
+                Si eres docente, administra los recursos disponibles para tu comunidad educativa.
+              </p>
+              <div className="flex flex-wrap gap-3 text-sm text-orange-800/80">
+                <span className="px-4 py-2 rounded-full bg-white border border-orange-200 shadow-sm">Respuesta en español</span>
+                <span className="px-4 py-2 rounded-full bg-white border border-orange-200 shadow-sm">Diseño inspirado en Inti</span>
+                <span className="px-4 py-2 rounded-full bg-white border border-orange-200 shadow-sm">IA educativa</span>
               </div>
-              Estudiante
-            </button>
+            </div>
 
-            <button
-              onClick={() => navigate('/teacher')}
-              className="w-full flex items-center justify-center gap-4 bg-white border-2 border-[#003366] text-[#003366] hover:bg-gray-50 text-lg font-semibold py-5 rounded-lg transition-all shadow-sm group"
-            >
-              <div className="bg-[#003366]/10 p-2 rounded-full group-hover:bg-[#003366]/20 transition-colors">
-                <GraduationCap size={28} />
+            <div className="p-10 bg-white space-y-6">
+              <div className="grid gap-4">
+                <button
+                  onClick={() => navigate('/student')}
+                  className="w-full flex items-center justify-between gap-4 bg-gradient-to-r from-orange-500 to-amber-400 text-white text-lg font-semibold px-5 py-5 rounded-xl transition-all shadow-lg hover:translate-y-[-2px]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="bg-white/20 p-3 rounded-full">
+                      <User size={26} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm uppercase tracking-wide text-white/80">Perfil</p>
+                      <p className="text-2xl font-bold">Estudiante</p>
+                      <p className="text-xs text-white/90">Elige materia, conversa y recibe guías claras.</p>
+                    </div>
+                  </div>
+                  <span className="text-3xl">→</span>
+                </button>
+
+                <button
+                  onClick={() => navigate('/teacher')}
+                  className="w-full flex items-center justify-between gap-4 bg-white border-2 border-orange-200 text-orange-800 hover:border-orange-300 text-lg font-semibold px-5 py-5 rounded-xl transition-all shadow-md hover:translate-y-[-2px]"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="bg-orange-50 p-3 rounded-full text-orange-500">
+                      <GraduationCap size={26} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm uppercase tracking-wide text-orange-700/80">Perfil</p>
+                      <p className="text-2xl font-bold text-[#9c3f0f]">Docente / Administrativo</p>
+                      <p className="text-xs text-orange-800/80">Carga material, gestiona recursos y apoya al aula.</p>
+                    </div>
+                  </div>
+                  <span className="text-3xl text-orange-500">→</span>
+                </button>
               </div>
-              Docente / Administrativo
-            </button>
+
+              <div className="rounded-2xl border border-orange-100 bg-gradient-to-r from-orange-50 to-white p-5 text-sm text-orange-800/80 shadow-inner">
+                <p className="font-semibold text-[#9c3f0f] mb-1">Mensaje de Inti</p>
+                <p>Estoy aquí para ayudarte a aprender con energía y claridad. ¡Empecemos! 🔆</p>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
 
-      <footer className="bg-gray-800 text-white p-4 text-center text-sm">
-        <p>© 2025 Ministerio de Educación del Ecuador - Todos los derechos reservados.</p>
+      <footer className="text-center text-xs text-orange-800/70 pb-8">
+        <p>© 2025 IntiLearn - Inspirado en la luz del conocimiento.</p>
       </footer>
     </div>
   );
