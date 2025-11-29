@@ -50,8 +50,12 @@ const StudentChat = () => {
     };
 
     const renderMessageContent = (msg) => {
-        if (msg.role !== 'assistant' || msg.isStreaming) {
+        if (msg.role !== 'assistant') {
             return msg.text;
+        }
+
+        if (msg.isStreaming) {
+            return renderHighlightedText(msg.text, 'stream');
         }
 
         const parts = [];
