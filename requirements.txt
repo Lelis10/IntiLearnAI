@@ -17,3 +17,4 @@ accelerate
 llama-cpp-python
 huggingface_hub
 python-multipart
+psutil
