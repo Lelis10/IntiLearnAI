@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, GraduationCap, Sparkles } from 'lucide-react';
+import { User, Sparkles } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -33,8 +33,7 @@ const Login = () => {
               </p>
               <h2 className="text-4xl font-black leading-tight text-[#9c3f0f]">Explora, pregunta y aprende con calor de sol.</h2>
               <p className="text-orange-800/80 text-lg leading-relaxed">
-                Selecciona tu rol para continuar. Si eres estudiante podrás escoger la materia que deseas aprender.
-                Si eres docente, administra los recursos disponibles para tu comunidad educativa.
+                Ingresa como estudiante para escoger la materia que deseas aprender y conversar con Inti.
               </p>
               <div className="flex flex-wrap gap-3 text-sm text-orange-800/80">
                 <span className="px-4 py-2 rounded-full bg-white border border-orange-200 shadow-sm">Respuesta en español</span>
@@ -60,23 +59,6 @@ const Login = () => {
                     </div>
                   </div>
                   <span className="text-3xl">→</span>
-                </button>
-
-                <button
-                  onClick={() => navigate('/teacher')}
-                  className="w-full flex items-center justify-between gap-4 bg-white border-2 border-orange-200 text-orange-800 hover:border-orange-300 text-lg font-semibold px-5 py-5 rounded-xl transition-all shadow-md hover:translate-y-[-2px]"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="bg-orange-50 p-3 rounded-full text-orange-500">
-                      <GraduationCap size={26} />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-sm uppercase tracking-wide text-orange-700/80">Perfil</p>
-                      <p className="text-2xl font-bold text-[#9c3f0f]">Docente / Administrativo</p>
-                      <p className="text-xs text-orange-800/80">Carga material, gestiona recursos y apoya al aula.</p>
-                    </div>
-                  </div>
-                  <span className="text-3xl text-orange-500">→</span>
                 </button>
               </div>
 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+import json
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
 from core.rag_engine import RAGEngine
-import shutil
-import os
-from core.ingest_data import DataIngestor
 
 router = APIRouter()
 
@@ -21,9 +22,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     sources: list
-
-from fastapi.responses import StreamingResponse
-import json
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -45,25 +43,5 @@ async def chat(request: ChatRequest):
 
         return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    file_location = f"data/{file.filename}"
-    try:
-        with open(file_location, "wb+") as file_object:
-            shutil.copyfileobj(file.file, file_object)
-        
-        # Trigger ingestion (Re-index)
-        # Note: This is blocking and expensive. Ideally should be a background task.
-        ingestor = DataIngestor()
-        ingestor.create_index()
-        
-        # Reload RAG engine index
-        global rag_engine
-        rag_engine = RAGEngine()
-        
-        return {"info": f"file '{file.filename}' saved and indexed."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
