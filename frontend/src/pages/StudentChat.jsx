@@ -28,6 +28,27 @@ const StudentChat = () => {
         scrollToBottom();
     }, [messages]);
 
+    const renderHighlightedText = (text, keyPrefix = 'highlight') => {
+        const highlightRegex = /(\*\*[^*]+\*\*)/g;
+
+        return text.split(highlightRegex).map((segment, index) => {
+            const isHighlighted = segment.startsWith('**') && segment.endsWith('**');
+
+            if (isHighlighted) {
+                return (
+                    <span
+                        key={`${keyPrefix}-${index}`}
+                        className="font-semibold text-orange-700 bg-orange-50 px-1 rounded"
+                    >
+                        {segment.slice(2, -2)}
+                    </span>
+                );
+            }
+
+            return <React.Fragment key={`${keyPrefix}-${index}`}>{segment}</React.Fragment>;
+        });
+    };
+
     const renderMessageContent = (msg) => {
         if (msg.role !== 'assistant' || msg.isStreaming) {
             return msg.text;
@@ -60,14 +81,18 @@ const StudentChat = () => {
 
         return parts.map((part, index) => {
             if (part.type === 'block') {
-                return <BlockMath key={index} math={part.content} />;
+                return <BlockMath key={`block-${index}`} math={part.content} />;
             }
 
             if (part.type === 'inline') {
-                return <InlineMath key={index} math={part.content} />;
+                return <InlineMath key={`inline-${index}`} math={part.content} />;
             }
 
-            return <span key={index}>{part.content}</span>;
+            return (
+                <React.Fragment key={`text-${index}`}>
+                    {renderHighlightedText(part.content, `text-${index}`)}
+                </React.Fragment>
+            );
         });
     };
 
