@@ -1,5 +1,7 @@
 import json
 
+from typing import List, Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,6 +20,8 @@ except Exception as e:
 
 class ChatRequest(BaseModel):
     message: str
+    history: Optional[List[dict]] = None
+    subject: Optional[str] = None
 
 class ChatResponse(BaseModel):
     response: str
@@ -30,7 +34,7 @@ async def chat(request: ChatRequest):
     
     try:
         # Use streaming
-        generator, sources = rag_engine.query(request.message, stream=True)
+        generator, sources = rag_engine.query(request.message, history=request.history, stream=True)
         
         def event_generator():
             # First yield sources
