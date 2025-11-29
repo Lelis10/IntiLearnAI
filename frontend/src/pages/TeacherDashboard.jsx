@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Upload, FileText, CheckCircle, AlertCircle, LogOut } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -7,7 +7,17 @@ const TeacherDashboard = () => {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [status, setStatus] = useState(null);
+    const [token, setToken] = useState('');
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const storedToken = localStorage.getItem('authToken');
+        if (!storedToken) {
+            navigate('/');
+        } else {
+            setToken(storedToken);
+        }
+    }, [navigate]);
 
     const handleFileChange = (e) => {
         setFile(e.target.files[0]);
@@ -15,7 +25,10 @@ const TeacherDashboard = () => {
     };
 
     const handleUpload = async () => {
-        if (!file) return;
+        if (!file || !token) {
+            navigate('/');
+            return;
+        }
 
         setUploading(true);
         const formData = new FormData();
@@ -23,7 +36,10 @@ const TeacherDashboard = () => {
 
         try {
             await axios.post('http://localhost:8000/upload', formData, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                    'X-Auth-Token': token,
+                },
             });
             setStatus('success');
             setFile(null);
@@ -49,7 +65,10 @@ const TeacherDashboard = () => {
                     </div>
                 </div>
                 <button
-                    onClick={() => navigate('/')}
+                    onClick={() => {
+                        localStorage.removeItem('authToken');
+                        navigate('/');
+                    }}
                     className="text-white hover:text-gray-200 flex items-center gap-2 text-sm"
                 >
                     <LogOut size={18} /> Salir

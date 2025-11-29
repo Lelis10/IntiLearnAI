@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, GraduationCap, Sparkles } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
+  const [tokenInput, setTokenInput] = useState(localStorage.getItem('authToken') || '');
+  const [tokenSaved, setTokenSaved] = useState(false);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-orange-50 via-amber-50 to-white text-[#9c3f0f] font-sans">
@@ -78,6 +80,50 @@ const Login = () => {
                   </div>
                   <span className="text-3xl text-orange-500">→</span>
                 </button>
+              </div>
+
+              <div className="mt-6 p-5 rounded-2xl border border-orange-200 bg-orange-50/60 shadow-inner">
+                <p className="text-sm font-semibold text-[#9c3f0f] mb-2 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-orange-500" /> Acceso Docente
+                </p>
+                <form
+                  className="flex flex-col gap-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const trimmed = tokenInput.trim();
+                    if (trimmed) {
+                      localStorage.setItem('authToken', trimmed);
+                      setTokenSaved(true);
+                    }
+                  }}
+                >
+                  <label className="text-sm text-orange-800/80" htmlFor="token-input">
+                    Ingresa el token proporcionado para acceder al panel docente.
+                  </label>
+                  <input
+                    id="token-input"
+                    type="text"
+                    value={tokenInput}
+                    onChange={(e) => {
+                      setTokenInput(e.target.value);
+                      setTokenSaved(false);
+                    }}
+                    className="w-full rounded-xl border border-orange-200 px-4 py-3 text-orange-900 focus:outline-none focus:ring-2 focus:ring-orange-400 focus:border-orange-300"
+                    placeholder="Ej: docente-2024"
+                  />
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      className="bg-gradient-to-r from-orange-500 to-amber-400 text-white px-4 py-2 rounded-lg font-semibold shadow hover:opacity-95"
+                    >
+                      Guardar token
+                    </button>
+                    {tokenSaved && (
+                      <span className="text-sm text-green-700 font-semibold">Token guardado ✓</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-orange-700/70">Luego de guardar el token, selecciona el perfil de Docente para continuar.</p>
+                </form>
               </div>
 
               <div className="rounded-2xl border border-orange-100 bg-gradient-to-r from-orange-50 to-white p-5 text-sm text-orange-800/80 shadow-inner">

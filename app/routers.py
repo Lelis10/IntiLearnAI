@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel
 from core.rag_engine import RAGEngine
 import shutil
@@ -6,6 +6,7 @@ import os
 from core.ingest_data import DataIngestor
 
 router = APIRouter()
+EXPECTED_UPLOAD_TOKEN = os.getenv("UPLOAD_AUTH_TOKEN", "teacher-secret")
 
 # Initialize RAG Engine (Global instance to keep model in memory)
 # In a production app, we might want to use lifespan events, but this is fine for now.
@@ -49,7 +50,11 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    token = request.headers.get("x-auth-token")
+    if token != EXPECTED_UPLOAD_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid or missing upload token")
+
     file_location = f"data/{file.filename}"
     try:
         with open(file_location, "wb+") as file_object:
