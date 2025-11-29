@@ -71,6 +71,52 @@ const StudentChat = () => {
         });
     };
 
+    const appendAssistantToken = (prevMessages, token) => {
+        const newMessages = [...prevMessages];
+        const sentenceBoundary = /[.?!]/;
+
+        const ensureStreamingAssistant = () => {
+            const lastMessage = newMessages[newMessages.length - 1];
+            if (!lastMessage || lastMessage.role !== 'assistant' || !lastMessage.isStreaming) {
+                newMessages.push({ role: 'assistant', text: '', isStreaming: true });
+            }
+        };
+
+        ensureStreamingAssistant();
+
+        let lastMessageIndex = newMessages.length - 1;
+        let lastMessage = { ...newMessages[lastMessageIndex] };
+        let buffer = `${lastMessage.text}${token}`;
+
+        while (true) {
+            const match = buffer.match(sentenceBoundary);
+
+            if (!match) {
+                newMessages[lastMessageIndex] = { ...lastMessage, text: buffer };
+                break;
+            }
+
+            const boundaryEnd = (match.index || 0) + 1;
+            const completedText = buffer.slice(0, boundaryEnd).trimEnd();
+            const remainder = buffer.slice(boundaryEnd).trimStart();
+
+            newMessages[lastMessageIndex] = { ...lastMessage, text: completedText, isStreaming: false };
+
+            const newAssistant = { role: 'assistant', text: remainder, isStreaming: true };
+            newMessages.push(newAssistant);
+
+            lastMessageIndex = newMessages.length - 1;
+            lastMessage = { ...newAssistant };
+            buffer = remainder;
+
+            if (!buffer) {
+                break;
+            }
+        }
+
+        return newMessages;
+    };
+
     const sendMessage = async () => {
         if (!input.trim()) return;
 
@@ -79,9 +125,6 @@ const StudentChat = () => {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setLoading(true);
-
-        // Create a placeholder for the bot response
-        setMessages(prev => [...prev, { role: 'assistant', text: '', isStreaming: true }]);
 
         try {
             const response = await fetch('http://localhost:8000/chat', {
@@ -104,14 +147,7 @@ const StudentChat = () => {
                     try {
                         const data = JSON.parse(line);
                         if (data.token) {
-                            setMessages(prev => {
-                                const newMessages = [...prev];
-                                const lastMessageIndex = newMessages.length - 1;
-                                const lastMessage = { ...newMessages[lastMessageIndex] };
-                                lastMessage.text += data.token;
-                                newMessages[lastMessageIndex] = lastMessage;
-                                return newMessages;
-                            });
+                            setMessages(prev => appendAssistantToken(prev, data.token));
                         }
                     } catch (e) {
                         console.error("Error parsing chunk", e);
@@ -123,28 +159,30 @@ const StudentChat = () => {
                 const newMessages = [...prev];
                 const lastMessageIndex = newMessages.length - 1;
                 if (lastMessageIndex >= 0) {
-                    newMessages[lastMessageIndex] = {
-                        ...newMessages[lastMessageIndex],
-                        isStreaming: false,
-                    };
+                    const lastMessage = newMessages[lastMessageIndex];
+
+                    if (lastMessage.role === 'assistant' && lastMessage.text === '' && lastMessage.isStreaming) {
+                        newMessages.pop();
+                    } else {
+                        newMessages[lastMessageIndex] = {
+                            ...lastMessage,
+                            isStreaming: false,
+                        };
+                    }
                 }
                 return newMessages;
             });
 
         } catch (error) {
             console.error("Error sending message:", error);
-            setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessageIndex = newMessages.length - 1;
-                if (lastMessageIndex >= 0) {
-                    newMessages[lastMessageIndex] = {
-                        ...newMessages[lastMessageIndex],
-                        text: 'Lo siento, hubo un error de conexión.',
-                        isStreaming: false,
-                    };
+            setMessages(prev => ([
+                ...prev,
+                {
+                    role: 'assistant',
+                    text: 'Lo siento, hubo un error de conexión.',
+                    isStreaming: false,
                 }
-                return newMessages;
-            });
+            ]));
         } finally {
             setLoading(false);
         }
