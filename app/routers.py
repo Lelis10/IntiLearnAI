@@ -33,8 +33,13 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail="AI Model not initialized")
     
     try:
-        # Use streaming
-        generator, sources = rag_engine.query(request.message, history=request.history, stream=True)
+        # Use streaming with subject-aware retrieval
+        generator, sources = rag_engine.query(
+            request.message,
+            subject=request.subject,
+            history=request.history,
+            stream=True,
+        )
         
         def event_generator():
             # First yield sources

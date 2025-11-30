@@ -1,53 +1,74 @@
 import os
-import faiss
 import pickle
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from core.inference import LocalLLM
+from typing import Dict, List, Optional, Tuple
+
+import faiss
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer
+
+from core.index_manager import IndexStore
+from core.inference import LocalLLM
+
 
 class RAGEngine:
-    def __init__(self, index_path="embeddings/faiss_index.bin", metadata_path="embeddings/metadata.pkl"):
+    def __init__(
+        self,
+        embeddings_root: str = "embeddings/collections",
+        manifest_path: str = "embeddings/index_manifest.json",
+        default_subject: Optional[str] = None,
+    ):
         load_dotenv()
-        self.index_path = index_path
-        self.metadata_path = metadata_path
-        
-        print("Initializing RAG Engine...")
-        
-        # Load Embedding Model
-        self.embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-        
-        # Load FAISS Index
-        if os.path.exists(self.index_path) and os.path.exists(self.metadata_path):
-            self.index = faiss.read_index(self.index_path)
-            with open(self.metadata_path, "rb") as f:
-                self.metadata = pickle.load(f)
-            print(f"Loaded FAISS index with {self.index.ntotal} vectors.")
-        else:
-            print("Warning: FAISS index not found. RAG will not retrieve context.")
-            self.index = None
-            self.metadata = []
+        self.default_subject = default_subject or os.getenv("DEFAULT_SUBJECT_COLLECTION", "base")
+        self.index_store = IndexStore(embeddings_root=embeddings_root, manifest_path=manifest_path)
 
-        # Load LLM
+        print("Initializing RAG Engine...")
+
+        self.embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        self.loaded_indexes: Dict[str, Tuple[faiss.IndexFlatL2, List[dict]]] = {}
         self.llm = LocalLLM()
 
-    def retrieve(self, query, k=3, threshold=1.2):
-        if not self.index:
-            return []
-        
-        query_vector = self.embedder.encode([query]).astype('float32')
-        distances, indices = self.index.search(query_vector, k)
-        
+    def _load_collection(self, subject: str) -> Tuple[faiss.IndexFlatL2, List[dict]]:
+        if subject in self.loaded_indexes:
+            return self.loaded_indexes[subject]
+
+        collection_info = self.index_store.ensure_collection(subject)
+        index_path = collection_info["files"]["index"]
+        metadata_path = collection_info["files"]["metadata"]
+
+        index = faiss.read_index(index_path)
+        with open(metadata_path, "rb") as metadata_file:
+            metadata = pickle.load(metadata_file)
+
+        self.loaded_indexes[subject] = (index, metadata)
+        print(f"Loaded FAISS index for '{subject}' with {index.ntotal} vectors.")
+        return index, metadata
+
+    def _select_collection(self, subject: Optional[str]) -> str:
+        return subject or self.default_subject
+
+    def retrieve(self, query: str, subject: Optional[str] = None, k: int = 3, threshold: float = 1.2) -> List[dict]:
+        selected_subject = self._select_collection(subject)
+
+        try:
+            index, metadata = self._load_collection(selected_subject)
+        except FileNotFoundError:
+            if selected_subject != self.default_subject:
+                index, metadata = self._load_collection(self.default_subject)
+            else:
+                return []
+
+        query_vector = self.embedder.encode([query]).astype("float32")
+        distances, indices = index.search(query_vector, k)
+
         results = []
-        for i, idx in enumerate(indices[0]):
-            if idx != -1 and idx < len(self.metadata):
-                # Filter by distance (lower is better for L2)
-                if distances[0][i] < threshold:
-                    results.append(self.metadata[idx])
-        
+        for position, idx in enumerate(indices[0]):
+            if idx != -1 and idx < len(metadata):
+                if distances[0][position] < threshold:
+                    results.append(metadata[idx])
+
         return results
 
-    def _format_history(self, history):
+    def _format_history(self, history: Optional[List[dict]]) -> str:
         if not history:
             return ""
 
@@ -60,16 +81,7 @@ class RAGEngine:
 
         return "\n".join(formatted_messages)
 
-    def query(self, user_query, history=None, stream=False):
-        # 0. Check for greetings/chitchat (Simple heuristic)
-        greetings = ["hola", "hola!", "buenos dias", "buenas tardes", "buenas noches", "gracias", "adios", "hi", "hello"]
-        cleaned_query = user_query.lower().strip().replace("¡", "").replace("!", "")
-        
-        if cleaned_query in greetings:
-            retrieved_docs = []
-        else:
-            # 1. Retrieve Context
-            retrieved_docs = self.retrieve(user_query)
+    def _build_prompt(self, user_query: str, subject: str, retrieved_docs: List[dict], history: Optional[List[dict]]) -> str:
         context_text = "\n\n".join([doc["text"] for doc in retrieved_docs])
         history_text = self._format_history(history)
 
@@ -78,8 +90,9 @@ class RAGEngine:
             "Responde siempre de forma clara, breve y amable, usando ejemplos sencillos."
         )
 
-        # 2. Construct Prompt
-        prompt_sections = [persona_message]
+        subject_line = f"Materia seleccionada: {subject}" if subject else "Materia seleccionada: general"
+
+        prompt_sections = [persona_message, subject_line]
 
         if history_text:
             prompt_sections.append(f"Historial reciente:\n{history_text}")
@@ -99,22 +112,34 @@ class RAGEngine:
         prompt_sections.append(f"Pregunta: {user_query}")
         prompt_sections.append("Respuesta:")
 
-        prompt = "\n\n".join(prompt_sections)
+        return "\n\n".join(prompt_sections)
 
-        # 3. Generate Response
+    def query(self, user_query: str, subject: Optional[str] = None, history: Optional[List[dict]] = None, stream: bool = False):
+        greetings = ["hola", "hola!", "buenos dias", "buenas tardes", "buenas noches", "gracias", "adios", "hi", "hello"]
+        cleaned_query = user_query.lower().strip().replace("¡", "").replace("!", "")
+        selected_subject = self._select_collection(subject)
+
+        if cleaned_query in greetings:
+            retrieved_docs: List[dict] = []
+        else:
+            retrieved_docs = self.retrieve(user_query, subject=selected_subject)
+
+        prompt = self._build_prompt(user_query, selected_subject, retrieved_docs, history)
         response = self.llm.generate_response(prompt, stream=stream)
-        
+
+        sources = [doc.get("source") for doc in retrieved_docs]
+
         if stream:
-            return response, [doc["source"] for doc in retrieved_docs]
+            return response, sources
 
         return {
             "response": response,
-            "sources": [doc["source"] for doc in retrieved_docs]
+            "sources": sources,
         }
 
+
 if __name__ == "__main__":
-    # Test
     rag = RAGEngine()
-    result = rag.query("¿Qué es la fotosíntesis?")
+    result = rag.query("¿Qué es la fotosíntesis?", subject="biologia")
     print("\nRespuesta:", result["response"])
     print("\nFuentes:", result["sources"])
