@@ -58,22 +58,24 @@ class LocalLLM:
         if not path:
             raise ValueError("Model path is not configured.")
 
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Model path does not exist: {path}")
-
         is_gguf = False
         resolved_path = path
-        if os.path.isdir(path):
-            gguf_files = glob.glob(os.path.join(path, "*.gguf"))
-            if gguf_files:
-                resolved_path = gguf_files[0]
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                gguf_files = glob.glob(os.path.join(path, "*.gguf"))
+                if gguf_files:
+                    resolved_path = gguf_files[0]
+                    is_gguf = True
+            elif path.endswith(".gguf"):
                 is_gguf = True
-        elif path.endswith(".gguf"):
-            is_gguf = True
 
-        file_size = os.path.getsize(resolved_path)
-        if file_size == 0:
-            raise ValueError(f"Model file at {resolved_path} is empty.")
+            file_size = os.path.getsize(resolved_path)
+            if file_size == 0:
+                raise ValueError(f"Model file at {resolved_path} is empty.")
+        else:
+            # Allow remote repositories (e.g., Hugging Face IDs) to be passed
+            # directly to transformers, which will download lazily.
+            is_gguf = path.endswith(".gguf")
 
         return resolved_path, is_gguf
 
