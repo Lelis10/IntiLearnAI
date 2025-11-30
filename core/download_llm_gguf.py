@@ -69,16 +69,18 @@ def download_gguf_model(target: str = "primary") -> str:
     if not config:
         raise ValueError(f"Unknown target '{target}'. Valid options: {list(MODEL_OPTIONS)}")
 
+    repo_id = os.getenv(f"{config.env_var}_REPO_ID", config.repo_id)
+    filename = os.getenv(f"{config.env_var}_FILENAME", config.filename)
     save_dir = os.getenv(config.env_var, config.default_dir)
     os.makedirs(save_dir, exist_ok=True)
 
-    print(f"Downloading {config.name} from {config.repo_id} ({config.filename})...")
+    print(f"Downloading {config.name} from {repo_id} ({filename})...")
 
     expected_hash = os.getenv(f"{config.env_var}_SHA256", config.expected_sha256)
     try:
         model_path = hf_hub_download(
-            repo_id=config.repo_id,
-            filename=config.filename,
+            repo_id=repo_id,
+            filename=filename,
             local_dir=save_dir,
             local_dir_use_symlinks=False,
             resume_download=True,
@@ -94,5 +96,14 @@ if __name__ == "__main__":
     primary_path = download_gguf_model("primary")
     print(f"Primary model ready at: {primary_path}")
 
-    fallback_path = download_gguf_model("fallback")
-    print(f"Fallback model ready at: {fallback_path}")
+    try:
+        fallback_path = download_gguf_model("fallback")
+    except RuntimeError as exc:
+        print(
+            "Fallback model download failed. "
+            f"Error: {exc}. "
+            "If you need a fallback, set LLM_FALLBACK_MODEL_REPO_ID and "
+            "LLM_FALLBACK_MODEL_FILENAME to a valid GGUF model."
+        )
+    else:
+        print(f"Fallback model ready at: {fallback_path}")
