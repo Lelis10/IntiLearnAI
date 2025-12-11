@@ -29,3 +29,59 @@ This Electron shell wraps the existing frontend build output so it can run as a 
 The app will reuse `BACKEND_BASE_URL` if set. Otherwise, it will create (or reuse) a Python virtual environment in `../.desktop-backend`, install `requirements.txt`, start `uvicorn app.main:app` on an available local port, and wait for a healthy response before loading the frontend.
 
 Set `BACKEND_BASE_URL` before starting if the backend is not on `http://localhost:8000`.
+
+## Packaging and distribution
+
+### Electron (electron-builder)
+1. Build the frontend (`npm run build` inside `frontend`). The packaged app expects the assets in `frontend/dist/`.
+2. From `desktop/`, install dependencies (requires internet access):
+   ```bash
+   npm install
+   ```
+3. Produce installers:
+   - Windows NSIS `.exe`:
+     ```bash
+     npm run dist:win
+     ```
+   - macOS `.dmg` and `.pkg`:
+     ```bash
+     npm run dist:mac
+     ```
+   - Linux `.AppImage`, `.deb`, and `.rpm`:
+     ```bash
+     npm run dist:linux
+     ```
+
+The `electron-builder` configuration in `package.json` wires the app ID, product name, icons from `assets/icon.png`, and includes the production frontend build. Outputs are placed in `desktop/dist/`.
+
+**Code signing and updates**
+- Set your platform-specific signing credentials (for example `CSC_LINK`/`CSC_KEY_PASSWORD` on macOS or `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` on Windows) before running the `dist:*` scripts so installers ship signed binaries.
+- If you plan to ship auto-updates, configure a publish target (e.g., GitHub Releases, S3) in the `build` block and enable Electron's `autoUpdater` in the renderer.
+
+### Alternative: Tauri
+If you later wrap the same frontend with Tauri to take advantage of the smaller Rust runtime, create a Tauri workspace that serves `frontend/dist/` and run:
+```bash
+tauri build
+```
+This will generate platform installers using Tauri's updater/signing configuration.
+
+### Troubleshooting
+
+#### `npm install` crashes with 403 Forbidden
+If you see `registry returned 403 Forbidden` for `electron-builder`:
+1. **Clear npm cache**: `npm cache clean --force`
+2. **Check proxy settings**: Ensure you aren't behind a corporate proxy blocking the registry.
+3. **Use a different registry**: try `npm config set registry https://registry.npmjs.org/`
+4. **Manual Binary Download**: `electron-builder` attempts to download binaries. If it fails, check your internet connection or firewall.
+
+#### Build errors (7zip / EPERM)
+If `npm run dist:*` fails with file permission errors:
+- Close any VS Code instances or terminals that might be locking files in `dist/`.
+- Run the terminal as Administrator.
+- If it persists, delete the `desktop/dist/` folder manually and try again.
+
+#### Build Error: "Cannot create symbolic link"
+If you see `ERROR: Cannot create symbolic link : A required privilege is not held by the client`:
+1.  **Enable Developer Mode**: Go to **Windows Settings > Privacy & security > For developers**, and enable **Developer Mode**. This allows non-admin users to create symbolic links required by the build tools.
+2.  **Run as Administrator**: Alternatively, open your terminal (PowerShell/CMD) as Administrator and run the command again.
+

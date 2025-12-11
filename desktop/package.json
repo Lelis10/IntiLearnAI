@@ -9,9 +9,76 @@
     "start": "electron .",
     "dev": "electron .",
     "lint": "echo \"No lint configured\"",
-    "postinstall": "electron --version"
+    "postinstall": "electron --version",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg pkg",
+    "dist:linux": "electron-builder --linux AppImage deb rpm"
+  },
+  "build": {
+    "appId": "com.intilearn.desktop",
+    "productName": "IntiLearnAI",
+    "files": [
+      "main.js",
+      "preload.js",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../frontend/dist",
+        "to": "frontend/dist"
+      },
+      {
+        "from": "../app",
+        "to": "backend/app"
+      },
+      {
+        "from": "../core",
+        "to": "backend/core"
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "backend/requirements.txt"
+      },
+      {
+        "from": "../data",
+        "to": "backend/data"
+      }
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "asar": true,
+    "mac": {
+      "target": [
+        "dmg",
+        "pkg"
+      ],
+      "icon": "assets/icon.png",
+      "category": "public.app-category.education"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Education"
+    }
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^24.13.3"
   }
 }
