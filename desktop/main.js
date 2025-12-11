@@ -19,7 +19,8 @@ const { promisify } = require('util');
 
 const pipelineAsync = promisify(pipeline);
 
-let backendBaseUrl = process.env.BACKEND_BASE_URL;
+const configuredRemoteBackendUrl = process.env.BACKEND_BASE_URL || null;
+let backendBaseUrl = configuredRemoteBackendUrl;
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const indexHtmlPath = path.join(frontendDist, 'index.html');
 
@@ -464,7 +465,16 @@ async function startPackagedBackend(settings) {
   return { stop };
 }
 
+let restartInProgress = false;
+let restartPromise = null;
+
 async function restartBackend(reason = 'manual restart') {
+  if (restartInProgress) {
+    return restartPromise;
+  }
+
+  restartInProgress = true;
+  restartPromise = (async () => {
   updateBackendStatus({
     online: false,
     phase: 'restarting',
@@ -476,9 +486,15 @@ async function restartBackend(reason = 'manual restart') {
     backendController = null;
   }
 
-  backendBaseUrl = null;
-  backendController = await startPackagedBackend(appSettings);
-  return backendStatus;
+    backendBaseUrl = configuredRemoteBackendUrl;
+    backendController = await startPackagedBackend(appSettings);
+    return backendStatus;
+  })().finally(() => {
+    restartInProgress = false;
+    restartPromise = null;
+  });
+
+  return restartPromise;
 }
 
 function stopHealthMonitor() {
