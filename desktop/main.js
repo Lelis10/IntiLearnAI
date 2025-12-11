@@ -21,7 +21,9 @@ const pipelineAsync = promisify(pipeline);
 
 const configuredRemoteBackendUrl = process.env.BACKEND_BASE_URL || null;
 let backendBaseUrl = configuredRemoteBackendUrl;
-const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
+const frontendDist = app.isPackaged
+  ? path.join(process.resourcesPath, 'frontend', 'dist')
+  : path.resolve(__dirname, '..', 'frontend', 'dist');
 const indexHtmlPath = path.join(frontendDist, 'index.html');
 
 let cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${backendBaseUrl || ''}`;
@@ -390,17 +392,24 @@ async function startPackagedBackend(settings) {
     message: 'Preparando entorno de IA local...',
   });
 
-  const projectRoot = path.resolve(__dirname, '..');
-  const backendSourcePath = projectRoot;
+  /*
+   * [MODIFIED] Backend Path Resolution for Packaged App
+   * In development, backend files are at the project root (../).
+   * In production, they are bundled into 'resources/backend' via extraResources.
+   */
+  const backendSourcePath = app.isPackaged
+    ? path.join(process.resourcesPath, 'backend')
+    : path.resolve(__dirname, '..');
+
   const runtimeDir = app.isPackaged
-    ? path.join(app.getPath('userData'), 'backend')
-    : path.join(projectRoot, '.desktop-backend');
+    ? path.join(app.getPath('userData'), 'backend-runtime')
+    : path.join(backendSourcePath, '.desktop-backend'); // Use backendSourcePath instead of projectRoot
 
   if (!fs.existsSync(runtimeDir)) {
     fs.mkdirSync(runtimeDir, { recursive: true });
   }
 
-  const requirementsPath = path.join(projectRoot, 'requirements.txt');
+  const requirementsPath = path.join(backendSourcePath, 'requirements.txt');
   const { pythonBin } = await ensurePythonEnvironment(runtimeDir, requirementsPath);
   const port = await findAvailablePort(8000);
 
@@ -417,7 +426,7 @@ async function startPackagedBackend(settings) {
     LLM_DEVICE: llmDevice,
     EMBEDDINGS_ROOT: embeddingsRoot,
     EMBEDDINGS_MANIFEST: manifestPath,
-    INDEX_DATA_ROOT: path.join(projectRoot, 'data'),
+    INDEX_DATA_ROOT: path.join(backendSourcePath, 'data'),
     APP_LOG_DIR: settings.logPath,
   };
 

@@ -64,3 +64,24 @@ If you later wrap the same frontend with Tauri to take advantage of the smaller 
 tauri build
 ```
 This will generate platform installers using Tauri's updater/signing configuration.
+
+### Troubleshooting
+
+#### `npm install` crashes with 403 Forbidden
+If you see `registry returned 403 Forbidden` for `electron-builder`:
+1. **Clear npm cache**: `npm cache clean --force`
+2. **Check proxy settings**: Ensure you aren't behind a corporate proxy blocking the registry.
+3. **Use a different registry**: try `npm config set registry https://registry.npmjs.org/`
+4. **Manual Binary Download**: `electron-builder` attempts to download binaries. If it fails, check your internet connection or firewall.
+
+#### Build errors (7zip / EPERM)
+If `npm run dist:*` fails with file permission errors:
+- Close any VS Code instances or terminals that might be locking files in `dist/`.
+- Run the terminal as Administrator.
+- If it persists, delete the `desktop/dist/` folder manually and try again.
+
+#### Build Error: "Cannot create symbolic link"
+If you see `ERROR: Cannot create symbolic link : A required privilege is not held by the client`:
+1.  **Enable Developer Mode**: Go to **Windows Settings > Privacy & security > For developers**, and enable **Developer Mode**. This allows non-admin users to create symbolic links required by the build tools.
+2.  **Run as Administrator**: Alternatively, open your terminal (PowerShell/CMD) as Administrator and run the command again.
+

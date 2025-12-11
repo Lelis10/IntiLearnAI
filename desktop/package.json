@@ -27,6 +27,22 @@
       {
         "from": "../frontend/dist",
         "to": "frontend/dist"
+      },
+      {
+        "from": "../app",
+        "to": "backend/app"
+      },
+      {
+        "from": "../core",
+        "to": "backend/core"
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "backend/requirements.txt"
+      },
+      {
+        "from": "../data",
+        "to": "backend/data"
       }
     ],
     "directories": {
