@@ -1,0 +1,17 @@
+{
+  "name": "intilearn-desktop",
+  "version": "0.1.0",
+  "description": "Electron shell for the IntiLearnAI frontend build.",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "lint": "echo \"No lint configured\"",
+    "postinstall": "electron --version"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
