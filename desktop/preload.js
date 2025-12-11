@@ -29,4 +29,9 @@ contextBridge.exposeInMainWorld('desktopBridge', {
   downloadModel: () => ipcRenderer.invoke('model:download'),
   onModelDownloadProgress: (callback) => ipcRenderer.on('model:download-progress', (_event, data) => callback(data)),
   removeModelDownloadProgress: () => ipcRenderer.removeAllListeners('model:download-progress'),
+  getBackendStatus: () => ipcRenderer.invoke('backend:status'),
+  onBackendStatus: (callback) => ipcRenderer.on('backend:status', (_event, status) => callback(status)),
+  removeBackendStatus: () => ipcRenderer.removeAllListeners('backend:status'),
+  restartBackend: () => ipcRenderer.invoke('backend:restart'),
+  revealInFolder: (targetPath) => ipcRenderer.invoke('file:reveal', targetPath),
 });

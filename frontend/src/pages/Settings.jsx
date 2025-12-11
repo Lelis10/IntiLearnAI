@@ -3,12 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   CheckCircle2,
+  Cpu,
   DownloadCloud,
+  FileWarning,
   FolderOpen,
   Gauge,
   HardDrive,
+  Loader2,
   Settings as SettingsIcon,
   TriangleAlert,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 const formatBytes = (bytes) => {
@@ -21,13 +26,40 @@ const formatBytes = (bytes) => {
 
 const Settings = () => {
   const navigate = useNavigate();
-  const [settings, setSettings] = useState({ modelPath: '', cachePath: '' });
+  const [settings, setSettings] = useState({ modelPath: '', cachePath: '', modelPreset: 'compact', computeDevice: 'auto', logPath: '' });
   const [disk, setDisk] = useState({ model: null, cache: null });
   const [modelStatus, setModelStatus] = useState({ exists: false, sizeBytes: 0, info: null });
   const [downloadState, setDownloadState] = useState({ percent: 0, inProgress: false, error: null });
   const [loading, setLoading] = useState(true);
+  const [backendStatus, setBackendStatus] = useState({ online: false, message: 'Verificando backend...', phase: 'starting' });
+  const [restartingBackend, setRestartingBackend] = useState(false);
 
   const desktopBridge = window.desktopBridge;
+
+  const availableModels = useMemo(() => ([
+    {
+      id: 'compact',
+      label: 'Gemma 2 2B (compact)',
+      description: 'Modelo cuantizado ideal para correr en CPU o GPU ligera.',
+      size: '2.4 GB',
+    },
+  ]), []);
+
+  const backendIndicator = useMemo(() => {
+    if (backendStatus.online) {
+      return {
+        tone: 'text-green-800 bg-green-50 border-green-200',
+        icon: <Wifi className="w-4 h-4" />,
+        label: 'Backend en línea',
+      };
+    }
+
+    return {
+      tone: 'text-amber-800 bg-amber-50 border-amber-200',
+      icon: <WifiOff className="w-4 h-4" />,
+      label: 'Backend sin conexión',
+    };
+  }, [backendStatus]);
 
   const refreshDisk = async (nextSettings) => {
     if (!desktopBridge) return;
@@ -47,9 +79,19 @@ const Settings = () => {
 
     const load = async () => {
       const loadedSettings = await desktopBridge.getSettings();
-      setSettings(loadedSettings);
-      await refreshDisk(loadedSettings);
+      const normalizedSettings = {
+        modelPreset: 'compact',
+        computeDevice: 'auto',
+        logPath: '',
+        ...loadedSettings,
+      };
+      setSettings(normalizedSettings);
+      await refreshDisk(normalizedSettings);
       await refreshModelStatus();
+      const status = await desktopBridge.getBackendStatus();
+      if (status) {
+        setBackendStatus(status);
+      }
       setLoading(false);
     };
 
@@ -65,11 +107,15 @@ const Settings = () => {
       }
     };
 
+    const handleBackendStatus = (status) => setBackendStatus(status);
+
     desktopBridge.onModelDownloadProgress(handleProgress);
+    desktopBridge.onBackendStatus(handleBackendStatus);
     load();
 
     return () => {
       desktopBridge.removeModelDownloadProgress();
+      desktopBridge.removeBackendStatus();
     };
   }, [desktopBridge]);
 
@@ -80,6 +126,37 @@ const Settings = () => {
     const updated = await desktopBridge.saveSettings({ ...settings, [key]: selected });
     setSettings(updated);
     await refreshDisk(updated);
+  };
+
+  const handleModelPreset = async (presetId) => {
+    if (!desktopBridge) return;
+    const updated = await desktopBridge.saveSettings({ ...settings, modelPreset: presetId });
+    setSettings(updated);
+  };
+
+  const handleComputeDevice = async (device) => {
+    if (!desktopBridge) return;
+    const updated = await desktopBridge.saveSettings({ ...settings, computeDevice: device });
+    setSettings(updated);
+  };
+
+  const revealLogs = async () => {
+    if (!desktopBridge || !settings.logPath) return;
+    await desktopBridge.revealInFolder(settings.logPath);
+  };
+
+  const restartBackend = async () => {
+    if (!desktopBridge) return;
+    setRestartingBackend(true);
+    try {
+      await desktopBridge.restartBackend();
+      const status = await desktopBridge.getBackendStatus();
+      if (status) {
+        setBackendStatus(status);
+      }
+    } finally {
+      setRestartingBackend(false);
+    }
   };
 
   const startDownload = async () => {
@@ -151,6 +228,26 @@ const Settings = () => {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+        <section className="bg-white rounded-2xl border border-orange-100 shadow-sm p-5 flex flex-col gap-3">
+          <div className={`inline-flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold ${backendIndicator.tone}`}>
+            <span className="p-2 bg-white/70 rounded-full border border-white/60 shadow-sm">{backendIndicator.icon}</span>
+            <div>
+              <p>{backendIndicator.label}</p>
+              <p className="text-xs text-orange-700/70">{backendStatus.message}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <button
+              onClick={restartBackend}
+              disabled={restartingBackend}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-orange-200 text-orange-800 bg-orange-50 hover:bg-orange-100 disabled:opacity-70"
+            >
+              <Loader2 className={`w-4 h-4 ${restartingBackend ? 'animate-spin' : ''}`} /> Reiniciar backend
+            </button>
+            <span className="text-orange-700/70">Última señal: {new Date(backendStatus.lastUpdate || Date.now()).toLocaleTimeString()}</span>
+          </div>
+        </section>
+
         <section className="bg-white rounded-2xl border border-orange-100 shadow-sm p-6 space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -190,6 +287,82 @@ const Settings = () => {
           {downloadState.error && (
             <p className="text-sm text-red-700">{downloadState.error}</p>
           )}
+        </section>
+
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-white border border-orange-100 rounded-2xl shadow-sm p-5 space-y-4">
+            <div className="flex items-center gap-2 text-orange-800 font-semibold">
+              <CheckCircle2 className="w-4 h-4" /> Selección de modelo
+            </div>
+            <div className="space-y-3">
+              {availableModels.map((model) => (
+                <label
+                  key={model.id}
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition ${settings.modelPreset === model.id ? 'border-orange-300 bg-orange-50' : 'border-orange-100 hover:border-orange-200'}`}
+                >
+                  <input
+                    type="radio"
+                    name="model-preset"
+                    checked={settings.modelPreset === model.id}
+                    onChange={() => handleModelPreset(model.id)}
+                    className="mt-1 accent-orange-500"
+                  />
+                  <div>
+                    <p className="font-semibold text-orange-900">{model.label}</p>
+                    <p className="text-sm text-orange-700/80">{model.description}</p>
+                    <p className="text-xs text-orange-600/80">Tamaño aproximado: {model.size}</p>
+                  </div>
+                </label>
+              ))}
+              <p className="text-xs text-orange-700/70">Ruta actual: {settings.modelPath}</p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-orange-100 rounded-2xl shadow-sm p-5 space-y-4">
+            <div className="flex items-center gap-2 text-orange-800 font-semibold">
+              <Cpu className="w-4 h-4" /> Preferencia de CPU/GPU
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => handleComputeDevice('auto')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${settings.computeDevice === 'auto' ? 'bg-orange-600 text-white border-orange-600' : 'border-orange-200 text-orange-800 bg-white hover:shadow-sm'}`}
+              >
+                Automático (usa GPU si está disponible)
+              </button>
+              <button
+                onClick={() => handleComputeDevice('cpu')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${settings.computeDevice === 'cpu' ? 'bg-orange-600 text-white border-orange-600' : 'border-orange-200 text-orange-800 bg-white hover:shadow-sm'}`}
+              >
+                Forzar CPU
+              </button>
+            </div>
+            <div className="p-3 rounded-xl bg-orange-50 border border-orange-100 text-sm text-orange-800/90 flex items-start gap-2">
+              <FileWarning className="w-4 h-4 mt-0.5" />
+              <p>
+                La preferencia se aplica al reiniciar el backend. Usa "Automático" para permitir GPU/MPS si existe y vuelve a CPU en caso contrario.
+              </p>
+            </div>
+            <div className="bg-orange-50/70 border border-orange-100 rounded-xl p-3 text-sm space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-orange-900">
+                <HardDrive className="w-4 h-4" /> Carpeta de logs
+              </div>
+              <p className="text-orange-800/80 break-all">{settings.logPath || 'No asignada'}</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={revealLogs}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-orange-200 text-orange-800 text-sm font-semibold bg-white hover:shadow-sm"
+                >
+                  <FolderOpen className="w-4 h-4" /> Abrir ubicación
+                </button>
+                <button
+                  onClick={() => handleChoose('logPath')}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-orange-200 text-orange-800 text-sm font-semibold bg-white hover:shadow-sm"
+                >
+                  <SettingsIcon className="w-4 h-4" /> Cambiar carpeta
+                </button>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
