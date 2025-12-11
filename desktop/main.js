@@ -1,12 +1,21 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { spawn } = require('child_process');
+const net = require('net');
+const crypto = require('crypto');
 
-const backendBaseUrl = process.env.BACKEND_BASE_URL || 'http://localhost:8000';
+let backendBaseUrl = process.env.BACKEND_BASE_URL;
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const indexHtmlPath = path.join(frontendDist, 'index.html');
 
-const cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${backendBaseUrl}`;
+let cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${backendBaseUrl || ''}`;
+let backendController = null;
+
+function updateContentSecurityPolicy(baseUrl) {
+  const sanitizedBase = baseUrl || '';
+  cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${sanitizedBase}`;
+}
 
 function createMenu(window) {
   const template = [
@@ -50,6 +59,155 @@ function createMenu(window) {
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+}
+
+function findAvailablePort(preferredPort = 8000) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    let fallbackTried = false;
+
+    const tryListen = (portToTry) => {
+      server.once('listening', () => {
+        const { port } = server.address();
+        server.close(() => resolve(port));
+      });
+
+      server.once('error', (error) => {
+        server.removeAllListeners('listening');
+        if (!fallbackTried && preferredPort) {
+          fallbackTried = true;
+          tryListen(0);
+        } else {
+          reject(error);
+        }
+      });
+
+      server.listen(portToTry, '127.0.0.1');
+    };
+
+    tryListen(preferredPort || 0);
+  });
+}
+
+function runCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: 'inherit', ...options });
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} exited with code ${code}`));
+      }
+    });
+  });
+}
+
+function hashFile(filePath) {
+  const hash = crypto.createHash('sha256');
+  const content = fs.readFileSync(filePath);
+  hash.update(content);
+  return hash.digest('hex');
+}
+
+function getPythonBin(venvPath) {
+  const binDir = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const executable = process.platform === 'win32' ? 'python.exe' : 'python';
+  return path.join(venvPath, binDir, executable);
+}
+
+async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
+  const venvPath = path.join(runtimeDir, 'venv');
+  if (!fs.existsSync(venvPath)) {
+    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    await runCommand(pythonCommand, ['-m', 'venv', venvPath]);
+  }
+
+  const pythonBin = getPythonBin(venvPath);
+  const markerFile = path.join(runtimeDir, '.backend-ready');
+  const requirementsHash = requirementsPath && fs.existsSync(requirementsPath)
+    ? hashFile(requirementsPath)
+    : null;
+  const markerHash = fs.existsSync(markerFile)
+    ? fs.readFileSync(markerFile, 'utf8').trim() || null
+    : null;
+
+  if (requirementsHash && requirementsHash !== markerHash) {
+    await runCommand(pythonBin, ['-m', 'pip', 'install', '--upgrade', 'pip']);
+    await runCommand(pythonBin, ['-m', 'pip', 'install', '-r', requirementsPath]);
+    fs.writeFileSync(markerFile, requirementsHash);
+  }
+
+  return { venvPath, pythonBin };
+}
+
+async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 500) {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const response = await fetch(baseUrl);
+      if (response.ok) {
+        return true;
+      }
+    } catch (error) {
+      // Retry
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
+async function startPackagedBackend() {
+  if (backendBaseUrl) {
+    updateContentSecurityPolicy(backendBaseUrl);
+    return { stop: async () => { } };
+  }
+
+  const projectRoot = path.resolve(__dirname, '..');
+  const backendSourcePath = projectRoot;
+  const runtimeDir = app.isPackaged
+    ? path.join(app.getPath('userData'), 'backend')
+    : path.join(projectRoot, '.desktop-backend');
+
+  if (!fs.existsSync(runtimeDir)) {
+    fs.mkdirSync(runtimeDir, { recursive: true });
+  }
+
+  const requirementsPath = path.join(projectRoot, 'requirements.txt');
+  const { pythonBin } = await ensurePythonEnvironment(runtimeDir, requirementsPath);
+  const port = await findAvailablePort(8000);
+
+  const backendEnv = {
+    ...process.env,
+    VIRTUAL_ENV: path.join(runtimeDir, 'venv'),
+    PATH: `${path.dirname(pythonBin)}${path.delimiter}${process.env.PATH}`,
+  };
+
+  const args = ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', `${port}`];
+  const child = spawn(pythonBin, args, {
+    cwd: backendSourcePath,
+    env: backendEnv,
+    stdio: app.isPackaged ? 'ignore' : 'inherit',
+  });
+
+  backendBaseUrl = `http://127.0.0.1:${port}`;
+  updateContentSecurityPolicy(backendBaseUrl);
+
+  const healthy = await waitForBackendHealthy(backendBaseUrl);
+  if (!healthy) {
+    if (child && !child.killed) {
+      child.kill();
+    }
+    throw new Error('Backend did not become healthy in time');
+  }
+
+  const stop = async () => {
+    if (child && !child.killed) {
+      child.kill();
+    }
+  };
+
+  return { stop };
 }
 
 function secureWebContents(contents) {
@@ -114,6 +272,9 @@ function createWindow() {
 
 async function forwardHttpRequest(route, options = {}) {
   const normalizedRoute = route.startsWith('/') ? route.slice(1) : route;
+  if (!backendBaseUrl) {
+    throw new Error('Backend URL not configured');
+  }
   const target = new URL(normalizedRoute, backendBaseUrl);
   const requestInit = {
     method: options.method || 'GET',
@@ -158,9 +319,54 @@ function registerIpcHandlers() {
       };
     }
   });
+
+  ipcMain.on('app:start-chat-stream', async (event, { route, body }) => {
+    if (!backendBaseUrl) {
+      event.sender.send('chat:error', 'Backend not connected');
+      return;
+    }
+
+    try {
+      const target = new URL(route.startsWith('/') ? route.slice(1) : route, backendBaseUrl);
+      const response = await fetch(target, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        event.sender.send('chat:error', `HTTP Error: ${response.status}`);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        event.sender.send('chat:chunk', chunk);
+      }
+
+      event.sender.send('chat:end');
+    } catch (error) {
+      event.sender.send('chat:error', error.message);
+    }
+  });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  try {
+    backendController = await startPackagedBackend();
+  } catch (error) {
+    dialog.showErrorBox('Backend failed to start', error.message);
+    app.quit();
+    return;
+  }
+
   registerIpcHandlers();
   createWindow();
 
@@ -172,6 +378,13 @@ app.whenReady().then(() => {
       existingWindow.focus();
     }
   });
+});
+
+app.on('before-quit', async () => {
+  if (backendController) {
+    await backendController.stop();
+    backendController = null;
+  }
 });
 
 app.on('window-all-closed', () => {

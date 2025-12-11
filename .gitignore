@@ -11,5 +11,8 @@ models/
 data/
 embeddings/
 
+# Desktop runtime backend
+.desktop-backend/
+
 # VSCode
 .vscode/

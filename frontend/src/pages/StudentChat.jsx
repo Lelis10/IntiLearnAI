@@ -173,7 +173,7 @@ const StudentChat = () => {
         return newMessages;
     };
 
-    const sendMessage = async () => {
+    const sendMessage = () => {
         if (!input.trim()) return;
 
         const userMessage = { role: 'user', text: input };
@@ -182,45 +182,39 @@ const StudentChat = () => {
         setInput('');
         setLoading(true);
 
-        try {
-            const response = await fetch('http://localhost:8000/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: input, subject: selectedSubject, history: historyPayload })
-            });
+        // Remove any existing listeners to be safe
+        window.desktopBridge.removeChatListeners();
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let detectedSubject = null;
+        let detectedSubject = null;
 
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-                for (const line of lines) {
-                    try {
-                        const data = JSON.parse(line);
-                        if (data.token) {
-                            setMessages(prev => appendAssistantToken(prev, data.token));
-                        }
-                        if (data.suggested_subject) {
-                            detectedSubject = data.suggested_subject;
-                        }
-                    } catch (e) {
-                        console.error("Error parsing chunk", e);
+        window.desktopBridge.onChatChunk((chunk) => {
+            const lines = chunk.split('\n').filter(line => line.trim() !== '');
+            for (const line of lines) {
+                try {
+                    const data = JSON.parse(line);
+                    if (data.token) {
+                        setMessages(prev => appendAssistantToken(prev, data.token));
                     }
+                    if (data.suggested_subject) {
+                        detectedSubject = data.suggested_subject;
+                    }
+                } catch (e) {
+                    console.error("Error parsing chunk", e);
                 }
             }
+        });
+
+        window.desktopBridge.onChatEnd(() => {
+            setLoading(false);
+            window.desktopBridge.removeChatListeners();
 
             setMessages(prev => {
                 const newMessages = [...prev];
                 const lastMessageIndex = newMessages.length - 1;
+
+                // Cleanup partial streaming states
                 if (lastMessageIndex >= 0) {
                     const lastMessage = newMessages[lastMessageIndex];
-
                     if (lastMessage.role === 'assistant' && lastMessage.text === '' && lastMessage.isStreaming) {
                         newMessages.pop();
                     } else {
@@ -237,20 +231,28 @@ const StudentChat = () => {
 
                 return newMessages;
             });
+        });
 
-        } catch (error) {
+        window.desktopBridge.onChatError((error) => {
             console.error("Error sending message:", error);
+            setLoading(false);
+            window.desktopBridge.removeChatListeners();
             setMessages(prev => ([
                 ...prev,
                 {
                     role: 'assistant',
-                    text: 'Lo siento, hubo un error de conexión.',
+                    text: 'Lo siento, hubo un error de conexión con el escritorio.',
                     isStreaming: false,
                 }
             ]));
-        } finally {
-            setLoading(false);
-        }
+        });
+
+        // Trigger the stream
+        window.desktopBridge.streamChat({
+            message: input,
+            subject: selectedSubject,
+            history: historyPayload
+        });
     };
 
     return (
