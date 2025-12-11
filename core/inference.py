@@ -193,7 +193,6 @@ class LocalLLM:
                     stop=["<end_of_turn>"],
                     echo=False,
                     stream=stream,
-                    cache_prompt=use_prompt_cache,
                 )
                 if not cache_prompt and use_prompt_cache:
                     self.prompt_cache[formatted_prompt] = True

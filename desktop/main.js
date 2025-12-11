@@ -295,7 +295,7 @@ async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
   return { venvPath, pythonBin };
 }
 
-async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 500) {
+async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
       const response = await fetch(baseUrl);
