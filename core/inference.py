@@ -1,6 +1,10 @@
 import os
 import glob
 from dotenv import load_dotenv
+import sys
+
+# Add the project root directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 class LocalLLM:
     def __init__(self, model_path=None):

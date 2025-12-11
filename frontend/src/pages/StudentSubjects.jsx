@@ -4,19 +4,19 @@ import { BookOpen, FlaskConical, Languages, Globe2, Sparkles, Atom } from 'lucid
 
 const subjects = [
   {
-    title: 'Matemáticas',
+    title: 'Matematicas',
     description: 'Álgebra, geometría, cálculo y razonamiento lógico con ejemplos visuales.',
     icon: <Atom className="w-7 h-7" />,
     accent: 'from-orange-500/20 to-orange-600/10',
   },
   {
-    title: 'Física',
+    title: 'Fisica',
     description: 'Mecánica, electricidad y ondas explicadas con experimentos guiados.',
     icon: <FlaskConical className="w-7 h-7" />,
     accent: 'from-amber-500/20 to-amber-600/10',
   },
   {
-    title: 'Lengua y Literatura',
+    title: 'Lengua',
     description: 'Comprensión lectora, gramática y redacción con ejercicios prácticos.',
     icon: <BookOpen className="w-7 h-7" />,
     accent: 'from-yellow-500/20 to-orange-500/10',
@@ -28,13 +28,13 @@ const subjects = [
     accent: 'from-orange-400/20 to-amber-400/10',
   },
   {
-    title: 'Filosofía',
+    title: 'Filosofia',
     description: 'Conceptos, autores y debates para formar pensamiento crítico.',
     icon: <Sparkles className="w-7 h-7" />,
     accent: 'from-amber-400/20 to-orange-300/10',
   },
   {
-    title: 'Inglés',
+    title: 'Ingles',
     description: 'Vocabulario, conversación y gramática con frases del día a día.',
     icon: <Languages className="w-7 h-7" />,
     accent: 'from-orange-500/20 to-yellow-500/10',

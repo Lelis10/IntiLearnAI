@@ -26,6 +26,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     sources: list
+    suggested_subject: Optional[str] = None
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
@@ -33,12 +34,22 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail="AI Model not initialized")
     
     try:
-        # Use streaming
-        generator, sources = rag_engine.query(request.message, history=request.history, stream=True)
+        # Use streaming with subject-aware retrieval
+        generator, sources, suggested_subject = rag_engine.query(
+            request.message,
+            subject=request.subject,
+            history=request.history,
+            stream=True,
+        )
         
         def event_generator():
-            # First yield sources
-            yield json.dumps({"sources": sources}) + "\n"
+            # First yield sources and suggestion
+            initial_data = {"sources": sources}
+            if suggested_subject:
+                initial_data["suggested_subject"] = suggested_subject
+            
+            yield json.dumps(initial_data) + "\n"
+            
             # Then yield tokens
             for chunk in generator:
                 if 'choices' in chunk:
