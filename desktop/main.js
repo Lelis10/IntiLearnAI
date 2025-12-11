@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const net = require('net');
+const crypto = require('crypto');
 
 let backendBaseUrl = process.env.BACKEND_BASE_URL;
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
@@ -103,6 +104,13 @@ function runCommand(command, args, options = {}) {
   });
 }
 
+function hashFile(filePath) {
+  const hash = crypto.createHash('sha256');
+  const content = fs.readFileSync(filePath);
+  hash.update(content);
+  return hash.digest('hex');
+}
+
 function getPythonBin(venvPath) {
   const binDir = process.platform === 'win32' ? 'Scripts' : 'bin';
   const executable = process.platform === 'win32' ? 'python.exe' : 'python';
@@ -117,10 +125,17 @@ async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
 
   const pythonBin = getPythonBin(venvPath);
   const markerFile = path.join(runtimeDir, '.backend-ready');
-  if (requirementsPath && fs.existsSync(requirementsPath) && !fs.existsSync(markerFile)) {
+  const requirementsHash = requirementsPath && fs.existsSync(requirementsPath)
+    ? hashFile(requirementsPath)
+    : null;
+  const markerHash = fs.existsSync(markerFile)
+    ? fs.readFileSync(markerFile, 'utf8').trim() || null
+    : null;
+
+  if (requirementsHash && requirementsHash !== markerHash) {
     await runCommand(pythonBin, ['-m', 'pip', 'install', '--upgrade', 'pip']);
     await runCommand(pythonBin, ['-m', 'pip', 'install', '-r', requirementsPath]);
-    fs.writeFileSync(markerFile, `Dependencies installed at ${new Date().toISOString()}\n`);
+    fs.writeFileSync(markerFile, requirementsHash);
   }
 
   return { venvPath, pythonBin };
