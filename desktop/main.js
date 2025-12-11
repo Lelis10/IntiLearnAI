@@ -1,4 +1,12 @@
-const { app, BrowserWindow, Menu, ipcMain, nativeImage, dialog } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  ipcMain,
+  nativeImage,
+  dialog,
+  shell,
+} = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -11,19 +19,56 @@ const { promisify } = require('util');
 
 const pipelineAsync = promisify(pipeline);
 
-let backendBaseUrl = process.env.BACKEND_BASE_URL;
+const configuredRemoteBackendUrl = process.env.BACKEND_BASE_URL || null;
+let backendBaseUrl = configuredRemoteBackendUrl;
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
 const indexHtmlPath = path.join(frontendDist, 'index.html');
 
 let cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${backendBaseUrl || ''}`;
 let backendController = null;
 let appSettings = null;
+let healthInterval = null;
 
-const MODEL_INFO = {
-  filename: 'gemma-2-2b-it-Q4_K_M.gguf',
-  url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=1',
-  description: 'Gemma 2 2B Instruct (Q4_K_M) — compact quantized model',
+let backendStatus = {
+  online: false,
+  phase: 'idle',
+  message: 'Esperando inicialización del backend',
+  lastUpdate: new Date().toISOString(),
 };
+
+const MODEL_PRESETS = {
+  compact: {
+    id: 'compact',
+    label: 'Gemma 2 2B Instruct (Q4_K_M)',
+    filename: 'gemma-2-2b-it-Q4_K_M.gguf',
+    url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=1',
+    description: 'Modelo cuantizado y compacto para uso local con 2B parámetros.',
+  },
+};
+
+function getModelInfo(preset = 'compact') {
+  return MODEL_PRESETS[preset] || MODEL_PRESETS.compact;
+}
+
+function updateBackendStatus(patch) {
+  backendStatus = {
+    ...backendStatus,
+    ...patch,
+    lastUpdate: new Date().toISOString(),
+  };
+
+  BrowserWindow.getAllWindows().forEach((window) => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('backend:status', backendStatus);
+    }
+  });
+}
+
+function pushBackendStatusToWindow(window) {
+  if (window && !window.isDestroyed()) {
+    window.webContents.send('backend:status', backendStatus);
+  }
+}
 
 function getSettingsPath() {
   const userData = app.getPath('userData');
@@ -33,8 +78,10 @@ function getSettingsPath() {
 function ensureDirectories(settings) {
   const modelDir = path.dirname(settings.modelPath);
   const cacheDir = settings.cachePath;
+  const logDir = settings.logPath;
   fs.mkdirSync(modelDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
+  fs.mkdirSync(logDir, { recursive: true });
 }
 
 function loadSettings() {
@@ -42,9 +89,13 @@ function loadSettings() {
     return appSettings;
   }
 
+  const defaultModel = getModelInfo();
   const defaults = {
-    modelPath: path.join(app.getPath('userData'), 'models', MODEL_INFO.filename),
+    modelPreset: defaultModel.id,
+    modelPath: path.join(app.getPath('userData'), 'models', defaultModel.filename),
     cachePath: path.join(app.getPath('userData'), 'embeddings'),
+    logPath: path.join(app.getPath('logs'), 'IntiLearnAI'),
+    computeDevice: 'auto',
   };
 
   const settingsPath = getSettingsPath();
@@ -96,11 +147,13 @@ function getModelStatus() {
   const settings = loadSettings();
   const exists = fs.existsSync(settings.modelPath);
   const sizeBytes = exists ? fs.statSync(settings.modelPath).size : 0;
-  return { exists, path: settings.modelPath, sizeBytes, info: MODEL_INFO };
+  const modelInfo = getModelInfo(settings.modelPreset);
+  return { exists, path: settings.modelPath, sizeBytes, info: modelInfo };
 }
 
 async function downloadModel(targetWindow) {
   const settings = loadSettings();
+  const modelInfo = getModelInfo(settings.modelPreset);
   const targetPath = settings.modelPath;
   const tempPath = `${targetPath}.partial`;
 
@@ -161,7 +214,7 @@ async function downloadModel(targetWindow) {
       });
     };
 
-    https.get(MODEL_INFO.url, handleResponse).on('error', reject);
+    https.get(modelInfo.url, handleResponse).on('error', reject);
   });
 }
 
@@ -310,11 +363,32 @@ async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 700) {
   return false;
 }
 
+async function isBackendHealthy() {
+  if (!backendBaseUrl) return false;
+  try {
+    const response = await fetch(backendBaseUrl);
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
+
 async function startPackagedBackend(settings) {
   if (backendBaseUrl) {
     updateContentSecurityPolicy(backendBaseUrl);
+    updateBackendStatus({
+      online: true,
+      phase: 'connected',
+      message: 'Conectado a backend remoto',
+    });
     return { stop: async () => { } };
   }
+
+  updateBackendStatus({
+    online: false,
+    phase: 'preparing',
+    message: 'Preparando entorno de IA local...',
+  });
 
   const projectRoot = path.resolve(__dirname, '..');
   const backendSourcePath = projectRoot;
@@ -332,16 +406,26 @@ async function startPackagedBackend(settings) {
 
   const embeddingsRoot = path.join(settings.cachePath, 'collections');
   const manifestPath = path.join(settings.cachePath, 'index_manifest.json');
+  const devicePreference = (settings.computeDevice || 'auto').toLowerCase();
+  const llmDevice = devicePreference === 'cpu' ? 'cpu' : devicePreference === 'gpu' ? 'gpu' : 'auto';
 
   const backendEnv = {
     ...process.env,
     VIRTUAL_ENV: path.join(runtimeDir, 'venv'),
     PATH: `${path.dirname(pythonBin)}${path.delimiter}${process.env.PATH}`,
     LLM_MODEL_PATH: settings.modelPath,
+    LLM_DEVICE: llmDevice,
     EMBEDDINGS_ROOT: embeddingsRoot,
     EMBEDDINGS_MANIFEST: manifestPath,
     INDEX_DATA_ROOT: path.join(projectRoot, 'data'),
+    APP_LOG_DIR: settings.logPath,
   };
+
+  updateBackendStatus({
+    online: false,
+    phase: 'starting',
+    message: 'Iniciando modelo local...',
+  });
 
   const args = ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', `${port}`];
   const child = spawn(pythonBin, args, {
@@ -353,13 +437,51 @@ async function startPackagedBackend(settings) {
   backendBaseUrl = `http://127.0.0.1:${port}`;
   updateContentSecurityPolicy(backendBaseUrl);
 
-  const healthy = await waitForBackendHealthy(backendBaseUrl);
-  if (!healthy) {
+  // Poll for actual readiness (loading model vs server starting)
+  let isReady = false;
+  const maxRetries = 300; // ~5 mins max for model load
+  const delay = 1000;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${backendBaseUrl}/health`);
+      if (response.ok) {
+        const data = await response.json();
+
+        if (data.status === 'ready') {
+          isReady = true;
+          break;
+        } else if (data.status === 'loading_model') {
+          updateBackendStatus({
+            online: true,
+            phase: 'loading_model',
+            message: 'Cargando modelo en memoria...',
+          });
+        }
+      }
+    } catch (e) {
+      // Server not up yet
+    }
+    await new Promise(r => setTimeout(r, delay));
+  }
+
+  if (!isReady) {
     if (child && !child.killed) {
       child.kill();
     }
-    throw new Error('Backend did not become healthy in time');
+    updateBackendStatus({
+      online: false,
+      phase: 'error',
+      message: 'El modelo no terminó de cargar a tiempo',
+    });
+    throw new Error('Backend did not become ready in time');
   }
+
+  updateBackendStatus({
+    online: true,
+    phase: 'ready',
+    message: 'Backend local en línea. Listo para conversar.',
+  });
 
   const stop = async () => {
     if (child && !child.killed) {
@@ -368,6 +490,63 @@ async function startPackagedBackend(settings) {
   };
 
   return { stop };
+}
+
+let restartInProgress = false;
+let restartPromise = null;
+
+async function restartBackend(reason = 'manual restart') {
+  if (restartInProgress) {
+    return restartPromise;
+  }
+
+  restartInProgress = true;
+  restartPromise = (async () => {
+    updateBackendStatus({
+      online: false,
+      phase: 'restarting',
+      message: `Recuperando backend (${reason})...`,
+    });
+
+    if (backendController) {
+      await backendController.stop();
+      backendController = null;
+    }
+
+    backendBaseUrl = configuredRemoteBackendUrl;
+    backendController = await startPackagedBackend(appSettings);
+    return backendStatus;
+  })().finally(() => {
+    restartInProgress = false;
+    restartPromise = null;
+  });
+
+  return restartPromise;
+}
+
+function stopHealthMonitor() {
+  if (healthInterval) {
+    clearInterval(healthInterval);
+    healthInterval = null;
+  }
+}
+
+function startHealthMonitor() {
+  stopHealthMonitor();
+  healthInterval = setInterval(async () => {
+    const healthy = await isBackendHealthy();
+    if (healthy) return;
+
+    try {
+      await restartBackend('salud degradada');
+    } catch (error) {
+      updateBackendStatus({
+        online: false,
+        phase: 'error',
+        message: `Fallo al reiniciar backend: ${error.message}`,
+      });
+    }
+  }, 5000);
 }
 
 function secureWebContents(contents) {
@@ -540,7 +719,24 @@ function registerIpcHandlers() {
 
       event.sender.send('chat:end');
     } catch (error) {
+      updateBackendStatus({
+        online: false,
+        phase: 'error',
+        message: error.message || 'Error en la conversación',
+      });
       event.sender.send('chat:error', error.message);
+    }
+  });
+
+  ipcMain.handle('backend:status', () => backendStatus);
+  ipcMain.handle('backend:restart', async () => restartBackend('solicitud del usuario'));
+  ipcMain.handle('file:reveal', (_event, targetPath) => {
+    if (!targetPath) return false;
+    try {
+      shell.showItemInFolder(targetPath);
+      return true;
+    } catch (error) {
+      return false;
     }
   });
 }
@@ -548,23 +744,27 @@ function registerIpcHandlers() {
 app.whenReady().then(async () => {
   appSettings = loadSettings();
 
+  registerIpcHandlers();
+  const mainWindow = createWindow();
+  mainWindow.webContents.once('did-finish-load', () => {
+    pushBackendStatusToWindow(mainWindow);
+  });
+
   try {
     backendController = await startPackagedBackend(appSettings);
+    startHealthMonitor();
   } catch (error) {
     dialog.showErrorBox('Backend failed to start', error.message);
     app.quit();
     return;
   }
 
-  registerIpcHandlers();
-  const mainWindow = createWindow();
-
   const modelStatus = getModelStatus();
   if (!modelStatus.exists) {
     mainWindow.webContents.once('did-finish-load', () => {
       mainWindow.webContents.send('model:download-progress', {
         missing: true,
-        info: MODEL_INFO,
+        info: getModelInfo(appSettings.modelPreset),
       });
     });
   }
@@ -580,6 +780,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('before-quit', async () => {
+  stopHealthMonitor();
   if (backendController) {
     await backendController.stop();
     backendController = null;

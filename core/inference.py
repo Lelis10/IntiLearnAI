@@ -49,6 +49,21 @@ class LocalLLM:
     def _resolve_device(self) -> str:
         explicit_device = os.getenv("LLM_DEVICE")
         if explicit_device:
+            normalized = explicit_device.lower()
+            if normalized in {"auto", "gpu"}:
+                if torch.cuda.is_available():
+                    return "cuda"
+                if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                    return "mps"
+                try:
+                    import torch_directml  # type: ignore
+
+                    return str(torch_directml.device())
+                except Exception:
+                    pass
+
+                return "cpu"
+
             return explicit_device
 
         if torch.cuda.is_available():

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, User, Bot, ArrowLeft } from 'lucide-react';
+import { Send, Mic, User, Bot, ArrowLeft, Wifi, WifiOff, Loader2, RefreshCcw } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { InlineMath, BlockMath } from 'react-katex';
 import 'katex/dist/katex.min.css';
@@ -18,6 +18,12 @@ const StudentChat = () => {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [backendStatus, setBackendStatus] = useState({
+        online: false,
+        phase: 'starting',
+        message: 'Comprobando backend...',
+    });
+    const [refreshingBackend, setRefreshingBackend] = useState(false);
     const messagesEndRef = useRef(null);
 
     const scrollToBottom = () => {
@@ -27,6 +33,26 @@ const StudentChat = () => {
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    useEffect(() => {
+        const bridge = window.desktopBridge;
+        if (!bridge) return undefined;
+
+        const handleStatus = (status) => {
+            setBackendStatus(status);
+        };
+
+        bridge.onBackendStatus(handleStatus);
+        bridge.getBackendStatus().then((status) => {
+            if (status) {
+                setBackendStatus(status);
+            }
+        });
+
+        return () => {
+            bridge.removeBackendStatus();
+        };
+    }, []);
 
     const renderHighlightedText = (text, keyPrefix = 'highlight') => {
         const highlightRegex = /(\*\*[^*]+\*\*)/g;
@@ -173,8 +199,42 @@ const StudentChat = () => {
         return newMessages;
     };
 
+    const requestBackendRestart = async () => {
+        if (!window.desktopBridge || refreshingBackend) return;
+        setRefreshingBackend(true);
+        try {
+            await window.desktopBridge.restartBackend();
+            const status = await window.desktopBridge.getBackendStatus();
+            if (status) {
+                setBackendStatus(status);
+            }
+        } finally {
+            setRefreshingBackend(false);
+        }
+    };
+
+    const statusColor = backendStatus.online && backendStatus.phase === 'ready'
+        ? 'bg-green-500'
+        : ['starting', 'preparing', 'restarting', 'loading_model'].includes(backendStatus.phase)
+            ? 'bg-amber-500'
+            : 'bg-red-500';
+
+    const statusIcon = backendStatus.online ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />;
+
     const sendMessage = () => {
         if (!input.trim()) return;
+
+        if (!backendStatus.online) {
+            setMessages(prev => ([
+                ...prev,
+                {
+                    role: 'assistant',
+                    text: 'La conexión con el backend no está disponible. Espera a que se recupere o pulsa reintentar.',
+                    isStreaming: false,
+                }
+            ]));
+            return;
+        }
 
         const userMessage = { role: 'user', text: input };
         const historyPayload = [...messages, userMessage].map(({ role, text }) => ({ role, text }));
@@ -235,6 +295,12 @@ const StudentChat = () => {
 
         window.desktopBridge.onChatError((error) => {
             console.error("Error sending message:", error);
+            setBackendStatus(prev => ({
+                ...prev,
+                online: false,
+                phase: 'error',
+                message: error || 'Error de conexión con el backend',
+            }));
             setLoading(false);
             window.desktopBridge.removeChatListeners();
             setMessages(prev => ([
@@ -275,13 +341,37 @@ const StudentChat = () => {
                         </div>
                     </div>
                     <div className="flex items-center gap-3 bg-white border border-orange-100 rounded-full px-4 py-2 text-sm shadow-sm">
-                        <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        Conectado | {selectedSubject}
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white ${statusColor}`}>
+                            {statusIcon}
+                        </div>
+                        <div className="flex flex-col">
+                            <span className="font-semibold text-orange-900">{backendStatus.online ? 'En línea' : 'Sin conexión'}</span>
+                            <span className="text-xs text-orange-700/70">{backendStatus.message}</span>
+                        </div>
+                        <button
+                            onClick={requestBackendRestart}
+                            disabled={refreshingBackend}
+                            className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-full border border-orange-200 text-orange-800 hover:bg-orange-50 disabled:opacity-60"
+                        >
+                            <RefreshCcw className={`w-3 h-3 ${refreshingBackend ? 'animate-spin' : ''}`} /> Reiniciar
+                        </button>
                     </div>
                 </div>
             </header>
 
             <div className="flex-1 p-6 space-y-4 max-w-5xl mx-auto w-full">
+                {(!backendStatus.online || backendStatus.phase !== 'ready') && (
+                    <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl px-4 py-3 flex items-start gap-3 shadow-sm">
+                        <Loader2 className={`w-5 h-5 mt-0.5 ${backendStatus.phase === 'loading_model' || backendStatus.online ? 'animate-spin text-amber-600' : 'text-amber-700'}`} />
+                        <div>
+                            <p className="font-semibold text-orange-900">
+                                {backendStatus.phase === 'loading_model' ? 'Cargando inteligencia...' : 'Estado de inicio'}
+                            </p>
+                            <p className="text-sm">{backendStatus.message || 'Iniciando el modelo y cargando embeddings...'}</p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="bg-white/80 backdrop-blur rounded-2xl border border-orange-100 shadow-sm px-5 py-3 text-sm text-orange-800/80 flex items-center justify-between flex-wrap gap-3">
                     <div>
                         <p className="font-semibold text-[#9c3f0f]">Tema elegido: {selectedSubject}</p>
@@ -343,15 +433,24 @@ const StudentChat = () => {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                        placeholder={`Escribe tu pregunta sobre ${selectedSubject.toLowerCase()} aquí...`}
-                        className="flex-1 p-4 border border-orange-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 text-lg bg-white/80"
+                        placeholder={
+                            backendStatus.phase === 'loading_model'
+                                ? "Espera un momento, estoy preparando mi cerebro..."
+                                : `Escribe tu pregunta sobre ${selectedSubject.toLowerCase()} aquí...`
+                        }
+                        disabled={backendStatus.phase === 'loading_model' || loading || !backendStatus.online}
+                        className="flex-1 p-4 border border-orange-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 text-lg bg-white/80 disabled:opacity-70 disabled:bg-gray-50"
                     />
                     <button
                         onClick={sendMessage}
-                        disabled={loading}
+                        disabled={loading || !backendStatus.online || backendStatus.phase === 'loading_model'}
                         className="p-4 bg-gradient-to-r from-orange-500 to-amber-400 text-white rounded-xl hover:from-orange-600 hover:to-amber-500 disabled:opacity-50 transition-colors shadow-md"
                     >
-                        <Send size={24} />
+                        {backendStatus.phase === 'loading_model' ? (
+                            <Loader2 className="animate-spin w-6 h-6" />
+                        ) : (
+                            <Send size={24} />
+                        )}
                     </button>
                 </div>
                 <p className="text-center text-xs text-orange-700/70 mt-2">IntiLearn puede cometer errores. Verifica la información importante.</p>
