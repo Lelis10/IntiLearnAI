@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, FlaskConical, Languages, Globe2, Sparkles, Atom } from 'lucide-react';
+import { BookOpen, FlaskConical, Languages, Globe2, Sparkles, Atom, Download, Settings } from 'lucide-react';
 
 const subjects = [
   {
@@ -43,9 +43,71 @@ const subjects = [
 
 const StudentSubjects = () => {
   const navigate = useNavigate();
+  const [modelStatus, setModelStatus] = useState({ exists: true, sizeBytes: 0, info: null });
+  const [downloadState, setDownloadState] = useState({ percent: 0, inProgress: false, error: null });
+
+  useEffect(() => {
+    const desktopBridge = window.desktopBridge;
+    if (!desktopBridge) return undefined;
+
+    const loadStatus = async () => {
+      const status = await desktopBridge.getModelStatus();
+      setModelStatus(status);
+      if (!status.exists) {
+        setDownloadState((prev) => ({ ...prev, inProgress: false, error: null }));
+      }
+    };
+
+    const handleProgress = (payload) => {
+      if (payload?.missing) {
+        setModelStatus((prev) => ({ ...prev, exists: false }));
+      }
+      if (payload?.error) {
+        setDownloadState({ percent: 0, inProgress: false, error: payload.error });
+        return;
+      }
+      setDownloadState((prev) => ({
+        ...prev,
+        inProgress: payload.percent !== undefined,
+        percent: payload.percent ?? prev.percent,
+        error: null,
+      }));
+      if (payload.percent === 100) {
+        loadStatus();
+      }
+    };
+
+    desktopBridge.onModelDownloadProgress(handleProgress);
+    loadStatus();
+
+    return () => {
+      desktopBridge.removeModelDownloadProgress();
+    };
+  }, []);
 
   const handleSelect = (subject) => {
     navigate('/student/chat', { state: { subject } });
+  };
+
+  const handleDownload = async () => {
+    const desktopBridge = window.desktopBridge;
+    if (!desktopBridge) return;
+    setDownloadState({ percent: 0, inProgress: true, error: null });
+    const result = await desktopBridge.downloadModel();
+    if (!result.ok) {
+      setDownloadState({ percent: 0, inProgress: false, error: result.error });
+      return;
+    }
+    setDownloadState({ percent: 100, inProgress: false, error: null });
+    const status = await desktopBridge.getModelStatus();
+    setModelStatus(status);
+  };
+
+  const formatSize = (bytes) => {
+    if (!bytes) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const order = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return `${(bytes / 1024 ** order).toFixed(1)} ${units[order]}`;
   };
 
   return (
@@ -62,16 +124,58 @@ const StudentSubjects = () => {
               <p className="text-xs text-orange-700/70">El sol que ilumina tu aprendizaje</p>
             </div>
           </div>
-          <button
-            onClick={() => navigate('/')}
-            className="text-sm font-semibold text-orange-900/80 border border-orange-200 rounded-full px-4 py-2 bg-white hover:shadow-md transition"
-          >
-            Cambiar perfil
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/settings')}
+              className="text-sm font-semibold text-orange-900/80 border border-orange-200 rounded-full px-4 py-2 bg-white hover:shadow-md transition inline-flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4" /> Ajustes
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="text-sm font-semibold text-orange-900/80 border border-orange-200 rounded-full px-4 py-2 bg-white hover:shadow-md transition"
+            >
+              Cambiar perfil
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-12">
+        {!modelStatus.exists && (
+          <div className="mb-6 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 rounded-2xl shadow-sm p-5 flex flex-col gap-3">
+            <div className="flex items-center gap-3 text-orange-900 font-semibold">
+              <Download className="w-4 h-4" /> Modelo compacto pendiente de descarga
+            </div>
+            <p className="text-sm text-orange-800/80">
+              Descarga automática del modelo cuantizado para usar la app sin conexión. Tamaño aproximado: {formatSize(modelStatus.sizeBytes || 2400 * 1024 * 1024)}.
+            </p>
+            {downloadState.error && (
+              <p className="text-sm text-red-700">{downloadState.error}</p>
+            )}
+            {downloadState.inProgress && (
+              <div className="w-full bg-orange-100 rounded-full h-2 overflow-hidden">
+                <div className="bg-orange-500 h-2 transition-all" style={{ width: `${downloadState.percent}%` }} />
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={handleDownload}
+                disabled={downloadState.inProgress}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold shadow-sm disabled:opacity-70"
+              >
+                <Download className="w-4 h-4" /> {downloadState.inProgress ? 'Descargando...' : 'Descargar ahora'}
+              </button>
+              <button
+                onClick={() => navigate('/settings')}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-orange-200 text-orange-800 text-sm font-semibold bg-white hover:shadow-md"
+              >
+                <Settings className="w-4 h-4" /> Ajustar ubicación
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="bg-white/80 backdrop-blur-lg rounded-3xl shadow-xl border border-orange-100 overflow-hidden">
           <div className="p-10 grid grid-cols-1 lg:grid-cols-3 gap-8 items-center bg-gradient-to-r from-orange-100/80 via-amber-50 to-white">
             <div className="lg:col-span-2 space-y-4">

@@ -1,9 +1,15 @@
 const { app, BrowserWindow, Menu, ipcMain, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const https = require('https');
 const { spawn } = require('child_process');
 const net = require('net');
 const crypto = require('crypto');
+const { pipeline } = require('stream');
+const { promisify } = require('util');
+
+const pipelineAsync = promisify(pipeline);
 
 let backendBaseUrl = process.env.BACKEND_BASE_URL;
 const frontendDist = path.resolve(__dirname, '..', 'frontend', 'dist');
@@ -11,6 +17,153 @@ const indexHtmlPath = path.join(frontendDist, 'index.html');
 
 let cspValue = `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ${backendBaseUrl || ''}`;
 let backendController = null;
+let appSettings = null;
+
+const MODEL_INFO = {
+  filename: 'gemma-2-2b-it-Q4_K_M.gguf',
+  url: 'https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf?download=1',
+  description: 'Gemma 2 2B Instruct (Q4_K_M) — compact quantized model',
+};
+
+function getSettingsPath() {
+  const userData = app.getPath('userData');
+  return path.join(userData, 'settings.json');
+}
+
+function ensureDirectories(settings) {
+  const modelDir = path.dirname(settings.modelPath);
+  const cacheDir = settings.cachePath;
+  fs.mkdirSync(modelDir, { recursive: true });
+  fs.mkdirSync(cacheDir, { recursive: true });
+}
+
+function loadSettings() {
+  if (appSettings) {
+    return appSettings;
+  }
+
+  const defaults = {
+    modelPath: path.join(app.getPath('userData'), 'models', MODEL_INFO.filename),
+    cachePath: path.join(app.getPath('userData'), 'embeddings'),
+  };
+
+  const settingsPath = getSettingsPath();
+  if (!fs.existsSync(settingsPath)) {
+    ensureDirectories(defaults);
+    fs.writeFileSync(settingsPath, JSON.stringify(defaults, null, 2));
+    appSettings = defaults;
+    return appSettings;
+  }
+
+  try {
+    const contents = fs.readFileSync(settingsPath, 'utf8');
+    const parsed = JSON.parse(contents);
+    appSettings = { ...defaults, ...parsed };
+  } catch (error) {
+    appSettings = defaults;
+  }
+
+  ensureDirectories(appSettings);
+  return appSettings;
+}
+
+function saveSettings(nextSettings) {
+  const current = loadSettings();
+  appSettings = { ...current, ...nextSettings };
+  ensureDirectories(appSettings);
+  fs.writeFileSync(getSettingsPath(), JSON.stringify(appSettings, null, 2));
+  return appSettings;
+}
+
+async function getDiskInfo(targetPath) {
+  try {
+    const probePath = fs.existsSync(targetPath) ? targetPath : path.dirname(targetPath);
+    const stats = await fs.promises.statfs(probePath);
+    return {
+      freeBytes: stats.bavail * stats.bsize,
+      totalBytes: stats.blocks * stats.bsize,
+    };
+  } catch (error) {
+    return {
+      freeBytes: os.freemem(),
+      totalBytes: os.totalmem(),
+      error: error.message,
+    };
+  }
+}
+
+function getModelStatus() {
+  const settings = loadSettings();
+  const exists = fs.existsSync(settings.modelPath);
+  const sizeBytes = exists ? fs.statSync(settings.modelPath).size : 0;
+  return { exists, path: settings.modelPath, sizeBytes, info: MODEL_INFO };
+}
+
+async function downloadModel(targetWindow) {
+  const settings = loadSettings();
+  const targetPath = settings.modelPath;
+  const tempPath = `${targetPath}.partial`;
+
+  await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    const report = (payload) => {
+      if (targetWindow && !targetWindow.isDestroyed()) {
+        targetWindow.webContents.send('model:download-progress', payload);
+      }
+    };
+
+    const handleResponse = async (response) => {
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        https.get(response.headers.location, handleResponse).on('error', reject);
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Unexpected status code: ${response.statusCode}`));
+        return;
+      }
+
+      const total = Number.parseInt(response.headers['content-length'] || '0', 10) || null;
+      let downloaded = 0;
+      const writeStream = fs.createWriteStream(tempPath);
+
+      response.on('data', (chunk) => {
+        downloaded += chunk.length;
+        const percent = total ? Math.round((downloaded / total) * 100) : null;
+        report({ downloaded, total, percent });
+      });
+
+      response.on('error', (error) => {
+        writeStream.destroy();
+        fs.rm(tempPath, { force: true }, () => reject(error));
+      });
+
+      writeStream.on('error', (error) => {
+        response.destroy();
+        fs.rm(tempPath, { force: true }, () => reject(error));
+      });
+
+      writeStream.on('finish', () => {
+        writeStream.close(async () => {
+          try {
+            await fs.promises.rename(tempPath, targetPath);
+            report({ percent: 100, downloaded, total });
+            resolve(targetPath);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+
+      pipelineAsync(response, writeStream).catch((error) => {
+        fs.rm(tempPath, { force: true }, () => reject(error));
+      });
+    };
+
+    https.get(MODEL_INFO.url, handleResponse).on('error', reject);
+  });
+}
 
 function updateContentSecurityPolicy(baseUrl) {
   const sanitizedBase = baseUrl || '';
@@ -157,7 +310,7 @@ async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 500) {
   return false;
 }
 
-async function startPackagedBackend() {
+async function startPackagedBackend(settings) {
   if (backendBaseUrl) {
     updateContentSecurityPolicy(backendBaseUrl);
     return { stop: async () => { } };
@@ -177,10 +330,17 @@ async function startPackagedBackend() {
   const { pythonBin } = await ensurePythonEnvironment(runtimeDir, requirementsPath);
   const port = await findAvailablePort(8000);
 
+  const embeddingsRoot = path.join(settings.cachePath, 'collections');
+  const manifestPath = path.join(settings.cachePath, 'index_manifest.json');
+
   const backendEnv = {
     ...process.env,
     VIRTUAL_ENV: path.join(runtimeDir, 'venv'),
     PATH: `${path.dirname(pythonBin)}${path.delimiter}${process.env.PATH}`,
+    LLM_MODEL_PATH: settings.modelPath,
+    EMBEDDINGS_ROOT: embeddingsRoot,
+    EMBEDDINGS_MANIFEST: manifestPath,
+    INDEX_DATA_ROOT: path.join(projectRoot, 'data'),
   };
 
   const args = ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', `${port}`];
@@ -308,6 +468,33 @@ function registerIpcHandlers() {
     timestamp: new Date().toISOString(),
   }));
 
+  ipcMain.handle('settings:get', () => loadSettings());
+  ipcMain.handle('settings:update', (_event, updates) => saveSettings(updates || {}));
+  ipcMain.handle('settings:choose-directory', async (_event, currentPath) => {
+    const result = await dialog.showOpenDialog({
+      title: 'Select folder',
+      defaultPath: currentPath || app.getPath('home'),
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || !result.filePaths.length) {
+      return null;
+    }
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('storage:disk-info', (_event, targetPath) => getDiskInfo(targetPath || app.getPath('home')));
+  ipcMain.handle('model:status', () => getModelStatus());
+  ipcMain.handle('model:download', async (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    try {
+      const modelPath = await downloadModel(window);
+      return { ok: true, path: modelPath };
+    } catch (error) {
+      window.webContents.send('model:download-progress', { error: error.message });
+      return { ok: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('app:http', async (_event, route, options) => {
     try {
       return await forwardHttpRequest(route, options);
@@ -359,8 +546,10 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(async () => {
+  appSettings = loadSettings();
+
   try {
-    backendController = await startPackagedBackend();
+    backendController = await startPackagedBackend(appSettings);
   } catch (error) {
     dialog.showErrorBox('Backend failed to start', error.message);
     app.quit();
@@ -368,7 +557,17 @@ app.whenReady().then(async () => {
   }
 
   registerIpcHandlers();
-  createWindow();
+  const mainWindow = createWindow();
+
+  const modelStatus = getModelStatus();
+  if (!modelStatus.exists) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('model:download-progress', {
+        missing: true,
+        info: MODEL_INFO,
+      });
+    });
+  }
 
   app.on('activate', () => {
     const [existingWindow] = BrowserWindow.getAllWindows();
