@@ -213,9 +213,9 @@ const StudentChat = () => {
         }
     };
 
-    const statusColor = backendStatus.online
+    const statusColor = backendStatus.online && backendStatus.phase === 'ready'
         ? 'bg-green-500'
-        : ['starting', 'preparing', 'restarting'].includes(backendStatus.phase)
+        : ['starting', 'preparing', 'restarting', 'loading_model'].includes(backendStatus.phase)
             ? 'bg-amber-500'
             : 'bg-red-500';
 
@@ -362,9 +362,11 @@ const StudentChat = () => {
             <div className="flex-1 p-6 space-y-4 max-w-5xl mx-auto w-full">
                 {(!backendStatus.online || backendStatus.phase !== 'ready') && (
                     <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl px-4 py-3 flex items-start gap-3 shadow-sm">
-                        <Loader2 className={`w-5 h-5 mt-0.5 ${backendStatus.online ? 'animate-spin text-amber-600' : 'text-amber-700'}`} />
+                        <Loader2 className={`w-5 h-5 mt-0.5 ${backendStatus.phase === 'loading_model' || backendStatus.online ? 'animate-spin text-amber-600' : 'text-amber-700'}`} />
                         <div>
-                            <p className="font-semibold text-orange-900">Estado de inicio</p>
+                            <p className="font-semibold text-orange-900">
+                                {backendStatus.phase === 'loading_model' ? 'Cargando inteligencia...' : 'Estado de inicio'}
+                            </p>
                             <p className="text-sm">{backendStatus.message || 'Iniciando el modelo y cargando embeddings...'}</p>
                         </div>
                     </div>
@@ -431,15 +433,24 @@ const StudentChat = () => {
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-                        placeholder={`Escribe tu pregunta sobre ${selectedSubject.toLowerCase()} aquí...`}
-                        className="flex-1 p-4 border border-orange-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 text-lg bg-white/80"
+                        placeholder={
+                            backendStatus.phase === 'loading_model'
+                                ? "Espera un momento, estoy preparando mi cerebro..."
+                                : `Escribe tu pregunta sobre ${selectedSubject.toLowerCase()} aquí...`
+                        }
+                        disabled={backendStatus.phase === 'loading_model' || loading || !backendStatus.online}
+                        className="flex-1 p-4 border border-orange-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-400 text-lg bg-white/80 disabled:opacity-70 disabled:bg-gray-50"
                     />
                     <button
                         onClick={sendMessage}
-                        disabled={loading || !backendStatus.online}
+                        disabled={loading || !backendStatus.online || backendStatus.phase === 'loading_model'}
                         className="p-4 bg-gradient-to-r from-orange-500 to-amber-400 text-white rounded-xl hover:from-orange-600 hover:to-amber-500 disabled:opacity-50 transition-colors shadow-md"
                     >
-                        <Send size={24} />
+                        {backendStatus.phase === 'loading_model' ? (
+                            <Loader2 className="animate-spin w-6 h-6" />
+                        ) : (
+                            <Send size={24} />
+                        )}
                     </button>
                 </div>
                 <p className="text-center text-xs text-orange-700/70 mt-2">IntiLearn puede cometer errores. Verifica la información importante.</p>

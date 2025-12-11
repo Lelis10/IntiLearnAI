@@ -348,7 +348,7 @@ async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
   return { venvPath, pythonBin };
 }
 
-async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 500) {
+async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
       const response = await fetch(baseUrl);
@@ -437,23 +437,50 @@ async function startPackagedBackend(settings) {
   backendBaseUrl = `http://127.0.0.1:${port}`;
   updateContentSecurityPolicy(backendBaseUrl);
 
-  const healthy = await waitForBackendHealthy(backendBaseUrl);
-  if (!healthy) {
+  // Poll for actual readiness (loading model vs server starting)
+  let isReady = false;
+  const maxRetries = 300; // ~5 mins max for model load
+  const delay = 1000;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${backendBaseUrl}/health`);
+      if (response.ok) {
+        const data = await response.json();
+
+        if (data.status === 'ready') {
+          isReady = true;
+          break;
+        } else if (data.status === 'loading_model') {
+          updateBackendStatus({
+            online: true,
+            phase: 'loading_model',
+            message: 'Cargando modelo en memoria...',
+          });
+        }
+      }
+    } catch (e) {
+      // Server not up yet
+    }
+    await new Promise(r => setTimeout(r, delay));
+  }
+
+  if (!isReady) {
     if (child && !child.killed) {
       child.kill();
     }
     updateBackendStatus({
       online: false,
       phase: 'error',
-      message: 'El backend no respondió a tiempo',
+      message: 'El modelo no terminó de cargar a tiempo',
     });
-    throw new Error('Backend did not become healthy in time');
+    throw new Error('Backend did not become ready in time');
   }
 
   updateBackendStatus({
     online: true,
     phase: 'ready',
-    message: 'Backend local en línea. Cargando embeddings bajo demanda.',
+    message: 'Backend local en línea. Listo para conversar.',
   });
 
   const stop = async () => {
@@ -475,16 +502,16 @@ async function restartBackend(reason = 'manual restart') {
 
   restartInProgress = true;
   restartPromise = (async () => {
-  updateBackendStatus({
-    online: false,
-    phase: 'restarting',
-    message: `Recuperando backend (${reason})...`,
-  });
+    updateBackendStatus({
+      online: false,
+      phase: 'restarting',
+      message: `Recuperando backend (${reason})...`,
+    });
 
-  if (backendController) {
-    await backendController.stop();
-    backendController = null;
-  }
+    if (backendController) {
+      await backendController.stop();
+      backendController = null;
+    }
 
     backendBaseUrl = configuredRemoteBackendUrl;
     backendController = await startPackagedBackend(appSettings);
@@ -687,10 +714,10 @@ function registerIpcHandlers() {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-      event.sender.send('chat:chunk', chunk);
-    }
+        event.sender.send('chat:chunk', chunk);
+      }
 
-    event.sender.send('chat:end');
+      event.sender.send('chat:end');
     } catch (error) {
       updateBackendStatus({
         online: false,

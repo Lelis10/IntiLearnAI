@@ -7,16 +7,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.rag_engine import RAGEngine
+from app.state import app_state
 
 router = APIRouter()
 
-# Initialize RAG Engine (Global instance to keep model in memory)
-# In a production app, we might want to use lifespan events, but this is fine for now.
-try:
-    rag_engine = RAGEngine()
-except Exception as e:
-    print(f"Error initializing RAG Engine: {e}")
-    rag_engine = None
+# Global initialization is now handled in app/state.py and app/main.py lifespan
 
 class ChatRequest(BaseModel):
     message: str
@@ -30,8 +25,13 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
-    if not rag_engine:
-        raise HTTPException(status_code=503, detail="AI Model not initialized")
+    if not app_state.rag_engine or app_state.status != "ready":
+        detail = "AI Model is still loading..." if app_state.status == "loading_model" else "AI Model failed to load"
+        if app_state.status == "error":
+            detail = f"AI Startup Error: {app_state.error_message}"
+        raise HTTPException(status_code=503, detail=detail)
+    
+    rag_engine = app_state.rag_engine
     
     try:
         # Use streaming with subject-aware retrieval
