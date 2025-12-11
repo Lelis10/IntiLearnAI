@@ -85,12 +85,19 @@ class RAGEngine:
         context_text = "\n\n".join([doc["text"] for doc in retrieved_docs])
         history_text = self._format_history(history)
 
-        persona_message = (
-            "Tu nombre es Inti, un asistente educativo en español. "
-            "Responde siempre de forma clara, breve y amable, usando ejemplos sencillos."
-        )
-
-        subject_line = f"Materia seleccionada: {subject}" if subject else "Materia seleccionada: general"
+        if subject == "Ingles":
+            persona_message = (
+                "You are Inti, a helpful English tutor. "
+                "Always respond in English. Keep your answers clear, short, and friendly. "
+                "Use simple examples suitable for students."
+            )
+            subject_line = "Subject: English"
+        else:
+            persona_message = (
+                "Tu nombre es Inti, un asistente educativo en español. "
+                "Responde siempre de forma clara, breve y amable, usando ejemplos sencillos."
+            )
+            subject_line = f"Materia seleccionada: {subject}" if subject else "Materia seleccionada: general"
 
         prompt_sections = [persona_message, subject_line]
 
@@ -98,30 +105,95 @@ class RAGEngine:
             prompt_sections.append(f"Historial reciente:\n{history_text}")
 
         if context_text:
-            prompt_sections.append(
-                "Usa la siguiente información de contexto para responder a la pregunta del usuario.\n"
-                "Si la respuesta no está en el contexto, usa tu conocimiento general pero menciónalo.\n"
-                "Contexto:\n"
-                f"{context_text}"
-            )
+            if subject == "Ingles":
+                prompt_sections.append(
+                    "Use the following context to answer the user's question.\n"
+                    "If the answer is not in the context, use your general knowledge but mention it.\n"
+                    "Context:\n"
+                    f"{context_text}"
+                )
+            else:
+                prompt_sections.append(
+                    "Usa la siguiente información de contexto para responder a la pregunta del usuario.\n"
+                    "Si la respuesta no está en el contexto, usa tu conocimiento general pero menciónalo.\n"
+                    "Contexto:\n"
+                    f"{context_text}"
+                )
         else:
-            prompt_sections.append(
-                "Responde a la siguiente pregunta en un tono didáctico y amable, adecuado para niños o estudiantes."
-            )
+            if subject == "Ingles":
+                prompt_sections.append(
+                    "Answer the following question in a friendly and educational tone."
+                )
+            else:
+                prompt_sections.append(
+                    "Responde a la siguiente pregunta en un tono didáctico y amable, adecuado para niños o estudiantes."
+                )
 
         prompt_sections.append(f"Pregunta: {user_query}")
         prompt_sections.append("Respuesta:")
 
         return "\n\n".join(prompt_sections)
 
+    def detect_subject(self, query: str) -> Optional[str]:
+        """
+        Uses the LLM to classify the query into one of the available subjects.
+        Returns the subject name if confident, else None.
+        """
+        subjects = ["Matematicas", "Fisica", "Lengua", "Historia", "Filosofia", "Ingles"]
+        subjects_str = ", ".join(subjects)
+        
+        prompt = (
+            f"Clasifica la siguiente pregunta en una de estas materias: {subjects_str}.\n"
+            "Usa las siguientes definiciones como guía:\n"
+            "- Matematicas: números, ecuaciones, geometría, cálculo, álgebra.\n"
+            "- Fisica: movimiento, fuerzas, energía, ondas, electricidad, velocidad, tiempo.\n"
+            "- Lengua: gramática, ortografía, literatura, análisis de textos, poemas.\n"
+            "- Historia: eventos pasados, personajes históricos, fechas, guerras, civilizaciones.\n"
+            "- Filosofia: pensamiento, ética, moral, existencia, filósofos, sentido de la vida.\n"
+            "- Ingles: aprender inglés, traducciones al inglés, vocabulario en inglés, 'cómo se dice'.\n\n"
+            "- None: Si la pregunta es un saludo o despedida.\n"
+            "Ejemplos:\n"
+            "Pregunta: ¿Cómo se dice perro en inglés? -> Materia: Ingles\n"
+            "Pregunta: Calcula la derivada de x. -> Materia: Matematicas\n"
+            "Pregunta: ¿Qué es el ser? -> Materia: Filosofia\n"
+            "Pregunta: Hola, ¿cómo estás? -> Materia: None\n\n"
+            "Si no encaja claramente en ninguna, responde 'None'.\n"
+            "Responde ÚNICAMENTE con el nombre de la materia o 'None'.\n\n"
+            f"Pregunta: {query}\n"
+            "Materia:"
+        )
+        
+        # Use a non-streaming call for classification
+        response = self.llm.generate_response(prompt, stream=False)
+        
+        # Normalize: remove accents and lower case for comparison
+        import unicodedata
+        def remove_accents(input_str):
+            nfkd_form = unicodedata.normalize('NFKD', input_str)
+            return "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+
+        cleaned_response = remove_accents(response.strip().replace(".", ""))
+        
+        # Check against subjects (also normalized if needed, but they are ASCII here)
+        if cleaned_response in subjects:
+            return cleaned_response
+        return None
+
     def query(self, user_query: str, subject: Optional[str] = None, history: Optional[List[dict]] = None, stream: bool = False):
         greetings = ["hola", "hola!", "buenos dias", "buenas tardes", "buenas noches", "gracias", "adios", "hi", "hello"]
         cleaned_query = user_query.lower().strip().replace("¡", "").replace("!", "")
         selected_subject = self._select_collection(subject)
+        
+        suggested_subject = None
 
         if cleaned_query in greetings:
             retrieved_docs: List[dict] = []
         else:
+            # Subject detection logic
+            detected_subject = self.detect_subject(user_query)
+            if detected_subject and detected_subject != selected_subject:
+                suggested_subject = detected_subject
+
             retrieved_docs = self.retrieve(user_query, subject=selected_subject)
 
         prompt = self._build_prompt(user_query, selected_subject, retrieved_docs, history)
@@ -130,11 +202,12 @@ class RAGEngine:
         sources = [doc.get("source") for doc in retrieved_docs]
 
         if stream:
-            return response, sources
+            return response, sources, suggested_subject
 
         return {
             "response": response,
             "sources": sources,
+            "suggested_subject": suggested_subject
         }
 
 

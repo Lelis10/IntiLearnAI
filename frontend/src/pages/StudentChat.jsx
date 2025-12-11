@@ -50,6 +50,33 @@ const StudentChat = () => {
     };
 
     const renderMessageContent = (msg) => {
+        if (msg.role === 'suggestion') {
+            return (
+                <div className="flex flex-col gap-3">
+                    <div className="flex items-center gap-2 text-blue-800">
+                        <span className="text-xl">💡</span>
+                        <p className="text-sm font-semibold">
+                            Parece que tu pregunta es de <span className="font-bold">{msg.subject}</span>.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            navigate('/student/chat', { state: { subject: msg.subject } });
+                            setMessages([{
+                                role: 'assistant',
+                                text: `¡Hola! He cambiado a ${msg.subject}. ¿En qué te puedo ayudar?`,
+                                isStreaming: false,
+                            }]);
+                        }}
+                        className="self-start px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition shadow-sm w-full md:w-auto text-center"
+                    >
+                        Ir a {msg.subject}
+                    </button>
+                    <p className="text-xs text-blue-600/70">¿Quieres cambiar de materia para una mejor respuesta?</p>
+                </div>
+            );
+        }
+
         if (msg.role !== 'assistant') {
             return msg.text;
         }
@@ -164,6 +191,7 @@ const StudentChat = () => {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
+            let detectedSubject = null;
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -177,6 +205,9 @@ const StudentChat = () => {
                         const data = JSON.parse(line);
                         if (data.token) {
                             setMessages(prev => appendAssistantToken(prev, data.token));
+                        }
+                        if (data.suggested_subject) {
+                            detectedSubject = data.suggested_subject;
                         }
                     } catch (e) {
                         console.error("Error parsing chunk", e);
@@ -199,6 +230,11 @@ const StudentChat = () => {
                         };
                     }
                 }
+
+                if (detectedSubject) {
+                    newMessages.push({ role: 'suggestion', subject: detectedSubject });
+                }
+
                 return newMessages;
             });
 
@@ -267,10 +303,18 @@ const StudentChat = () => {
                                 </div>
                             )}
 
+                            {msg.role === 'suggestion' && (
+                                <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 shrink-0 shadow">
+                                    <div className="text-sm font-bold">INFO</div>
+                                </div>
+                            )}
+
                             <div
                                 className={`max-w-[75%] p-5 rounded-2xl text-md leading-relaxed shadow-sm ${msg.role === 'user'
                                     ? 'bg-orange-500 text-white rounded-br-none'
-                                    : 'bg-white text-[#8a3b11] rounded-bl-none border border-orange-100'
+                                    : msg.role === 'suggestion'
+                                        ? 'bg-blue-50 border border-blue-200 text-blue-900'
+                                        : 'bg-white text-[#8a3b11] rounded-bl-none border border-orange-100'
                                     }`}
                             >
                                 {renderMessageContent(msg)}
@@ -310,7 +354,7 @@ const StudentChat = () => {
                 </div>
                 <p className="text-center text-xs text-orange-700/70 mt-2">IntiLearn puede cometer errores. Verifica la información importante.</p>
             </div>
-        </div>
+        </div >
     );
 };
 

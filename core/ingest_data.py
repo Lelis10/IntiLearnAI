@@ -10,6 +10,12 @@ import PyPDF2
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
+import sys
+import os
+
+# Add the project root directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from core.index_manager import IndexManifest, compute_checksum
 
 
