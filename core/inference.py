@@ -140,6 +140,7 @@ class LocalLLM:
             from optimum.onnxruntime import ORTModelForCausalLM
             from transformers import AutoTokenizer
 
+            self.device = os.getenv("LLM_DEVICE", "cpu")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
