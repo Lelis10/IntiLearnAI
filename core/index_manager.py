@@ -126,6 +126,7 @@ class IndexStore:
                 self.rebuild_collection(subject)
             except FileNotFoundError:
                 pass
+            self.manifest.reload()
             info = self.manifest.get_collection(subject)
             if info and self._verify_collection_files(info):
                 return info
@@ -139,6 +140,7 @@ class IndexStore:
         # Attempt a local rebuild when indexes are missing or invalid.
         try:
             self.rebuild_collection(subject)
+            self.manifest.reload()
             info = self.manifest.get_collection(subject)
             if info and self._verify_collection_files(info):
                 return info
