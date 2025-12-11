@@ -1,13 +1,31 @@
 import os
 import pickle
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 import faiss
+import numpy as np
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 
 from core.index_manager import IndexStore
 from core.inference import LocalLLM
+
+
+class EmbeddingCache:
+    def __init__(self, model: SentenceTransformer, cache_size: int = 2048):
+        self.model = model
+
+        @lru_cache(maxsize=cache_size)
+        def cached_encode(text: str):
+            return self.model.encode([text], convert_to_numpy=True)[0].astype("float32")
+
+        self._cached_encode = cached_encode
+
+    def encode(self, texts: List[str]):
+        if isinstance(texts, str):
+            texts = [texts]
+        return np.stack([self._cached_encode(text) for text in texts], axis=0)
 
 
 class RAGEngine:
@@ -31,8 +49,11 @@ class RAGEngine:
         print("Initializing RAG Engine...")
 
         self.embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        self.embedding_cache = EmbeddingCache(self.embedder)
         self.loaded_indexes: Dict[str, Tuple[faiss.IndexFlatL2, List[dict]]] = {}
         self.llm = LocalLLM()
+        # Warm embedding cache to speed up first retrieval
+        self.embedding_cache.encode(["Warmup embedding"])
 
     def _load_collection(self, subject: str) -> Tuple[faiss.IndexFlatL2, List[dict]]:
         if subject in self.loaded_indexes:
@@ -64,7 +85,7 @@ class RAGEngine:
             else:
                 return []
 
-        query_vector = self.embedder.encode([query]).astype("float32")
+        query_vector = self.embedding_cache.encode([query])
         distances, indices = index.search(query_vector, k)
 
         results = []
