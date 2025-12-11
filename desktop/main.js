@@ -120,7 +120,8 @@ function getPythonBin(venvPath) {
 async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
   const venvPath = path.join(runtimeDir, 'venv');
   if (!fs.existsSync(venvPath)) {
-    await runCommand('python3', ['-m', 'venv', venvPath]);
+    const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+    await runCommand(pythonCommand, ['-m', 'venv', venvPath]);
   }
 
   const pythonBin = getPythonBin(venvPath);
@@ -141,7 +142,7 @@ async function ensurePythonEnvironment(runtimeDir, requirementsPath) {
   return { venvPath, pythonBin };
 }
 
-async function waitForBackendHealthy(baseUrl, retries = 10, delayMs = 500) {
+async function waitForBackendHealthy(baseUrl, retries = 120, delayMs = 500) {
   for (let attempt = 0; attempt < retries; attempt += 1) {
     try {
       const response = await fetch(baseUrl);
@@ -159,7 +160,7 @@ async function waitForBackendHealthy(baseUrl, retries = 10, delayMs = 500) {
 async function startPackagedBackend() {
   if (backendBaseUrl) {
     updateContentSecurityPolicy(backendBaseUrl);
-    return { stop: async () => {} };
+    return { stop: async () => { } };
   }
 
   const projectRoot = path.resolve(__dirname, '..');
@@ -316,6 +317,43 @@ function registerIpcHandlers() {
         status: 500,
         error: error.message,
       };
+    }
+  });
+
+  ipcMain.on('app:start-chat-stream', async (event, { route, body }) => {
+    if (!backendBaseUrl) {
+      event.sender.send('chat:error', 'Backend not connected');
+      return;
+    }
+
+    try {
+      const target = new URL(route.startsWith('/') ? route.slice(1) : route, backendBaseUrl);
+      const response = await fetch(target, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        event.sender.send('chat:error', `HTTP Error: ${response.status}`);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        event.sender.send('chat:chunk', chunk);
+      }
+
+      event.sender.send('chat:end');
+    } catch (error) {
+      event.sender.send('chat:error', error.message);
     }
   });
 }
