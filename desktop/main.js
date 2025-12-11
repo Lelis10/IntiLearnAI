@@ -38,6 +38,8 @@ let backendStatus = {
   lastUpdate: new Date().toISOString(),
 };
 
+let backendLogPath = null;
+
 const MODEL_PRESETS = {
   compact: {
     id: 'compact',
@@ -84,6 +86,13 @@ function ensureDirectories(settings) {
   fs.mkdirSync(modelDir, { recursive: true });
   fs.mkdirSync(cacheDir, { recursive: true });
   fs.mkdirSync(logDir, { recursive: true });
+}
+
+function createBackendLogStreams(logDir) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const logFile = path.join(logDir, `backend-${timestamp}.log`);
+  const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+  return { logFile, logStream };
 }
 
 function loadSettings() {
@@ -437,11 +446,30 @@ async function startPackagedBackend(settings) {
   });
 
   const args = ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', `${port}`];
+
+  const logging = app.isPackaged ? createBackendLogStreams(settings.logPath) : null;
+  backendLogPath = logging?.logFile || null;
+
   const child = spawn(pythonBin, args, {
     cwd: backendSourcePath,
     env: backendEnv,
-    stdio: app.isPackaged ? 'ignore' : 'inherit',
+    stdio: app.isPackaged ? ['ignore', 'pipe', 'pipe'] : 'inherit',
   });
+
+  if (app.isPackaged && logging) {
+    const writeChunk = (chunk, prefix = '') => {
+      if (!logging.logStream.destroyed) {
+        logging.logStream.write(`${prefix}${chunk.toString()}`);
+      }
+    };
+
+    child.stdout?.on('data', (chunk) => writeChunk(chunk));
+    child.stderr?.on('data', (chunk) => writeChunk(chunk, '[ERR] '));
+    child.on('exit', (code) => {
+      writeChunk(`\nBackend process exited with code ${code ?? 'null'}\n`);
+      logging.logStream.end();
+    });
+  }
 
   backendBaseUrl = `http://127.0.0.1:${port}`;
   updateContentSecurityPolicy(backendBaseUrl);
@@ -763,7 +791,10 @@ app.whenReady().then(async () => {
     backendController = await startPackagedBackend(appSettings);
     startHealthMonitor();
   } catch (error) {
-    dialog.showErrorBox('Backend failed to start', error.message);
+    const details = backendLogPath
+      ? `${error.message}\n\nRevisa el log en: ${backendLogPath}`
+      : error.message;
+    dialog.showErrorBox('Backend failed to start', details);
     app.quit();
     return;
   }
