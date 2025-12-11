@@ -19,7 +19,14 @@ class RAGEngine:
     ):
         load_dotenv()
         self.default_subject = default_subject or os.getenv("DEFAULT_SUBJECT_COLLECTION", "base")
-        self.index_store = IndexStore(embeddings_root=embeddings_root, manifest_path=manifest_path)
+        resolved_embeddings_root = os.getenv("EMBEDDINGS_ROOT", embeddings_root)
+        resolved_manifest_path = os.getenv("EMBEDDINGS_MANIFEST", manifest_path)
+        data_root = os.getenv("INDEX_DATA_ROOT", "data")
+        self.index_store = IndexStore(
+            embeddings_root=resolved_embeddings_root,
+            manifest_path=resolved_manifest_path,
+            data_root=data_root,
+        )
 
         print("Initializing RAG Engine...")
 

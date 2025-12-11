@@ -21,4 +21,12 @@ contextBridge.exposeInMainWorld('desktopBridge', {
     ipcRenderer.removeAllListeners('chat:end');
     ipcRenderer.removeAllListeners('chat:error');
   },
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  saveSettings: (settings) => ipcRenderer.invoke('settings:update', sanitizeOptions(settings)),
+  chooseDirectory: (currentPath) => ipcRenderer.invoke('settings:choose-directory', currentPath),
+  getDiskInfo: (targetPath) => ipcRenderer.invoke('storage:disk-info', targetPath),
+  getModelStatus: () => ipcRenderer.invoke('model:status'),
+  downloadModel: () => ipcRenderer.invoke('model:download'),
+  onModelDownloadProgress: (callback) => ipcRenderer.on('model:download-progress', (_event, data) => callback(data)),
+  removeModelDownloadProgress: () => ipcRenderer.removeAllListeners('model:download-progress'),
 });
