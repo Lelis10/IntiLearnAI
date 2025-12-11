@@ -181,7 +181,10 @@ const Settings = () => {
 
           {(downloadState.inProgress || downloadState.percent) && (
             <div className="w-full bg-orange-100 rounded-full h-3 overflow-hidden">
-              <div className="bg-orange-500 h-3 transition-all" style={{ width: `${downloadProgress}%` }} />
+              <div
+                className="bg-orange-500 h-3 transition-all"
+                style={{ width: `${downloadState.percent ?? 0}%` }}
+              />
             </div>
           )}
           {downloadState.error && (
