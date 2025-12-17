@@ -88,6 +88,64 @@ function ensureDirectories(settings) {
   fs.mkdirSync(logDir, { recursive: true });
 }
 
+function getPackagedBackendRoot() {
+  if (!app.isPackaged) return null;
+  return path.join(process.resourcesPath, 'backend');
+}
+
+function getPackagedModelPath(settings) {
+  const backendRoot = getPackagedBackendRoot();
+  if (!backendRoot) return null;
+
+  const candidate = path.join(backendRoot, 'models', getModelInfo(settings.modelPreset).filename);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function getPackagedEmbeddingsPath() {
+  const backendRoot = getPackagedBackendRoot();
+  if (!backendRoot) return null;
+
+  const candidate = path.join(backendRoot, 'embeddings');
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+async function copyPackagedModelIfMissing(settings) {
+  const packagedModel = getPackagedModelPath(settings);
+  if (!packagedModel || fs.existsSync(settings.modelPath)) {
+    return false;
+  }
+
+  await fs.promises.mkdir(path.dirname(settings.modelPath), { recursive: true });
+  await fs.promises.copyFile(packagedModel, settings.modelPath);
+  return true;
+}
+
+async function copyPackagedEmbeddingsIfMissing(settings) {
+  const packagedEmbeddings = getPackagedEmbeddingsPath();
+  if (!packagedEmbeddings) {
+    return false;
+  }
+
+  const manifestPath = path.join(settings.cachePath, 'index_manifest.json');
+  const collectionsPath = path.join(settings.cachePath, 'collections');
+  if (fs.existsSync(manifestPath) && fs.existsSync(collectionsPath)) {
+    return false;
+  }
+
+  await fs.promises.mkdir(settings.cachePath, { recursive: true });
+  await fs.promises.cp(packagedEmbeddings, settings.cachePath, { recursive: true, errorOnExist: false });
+  return true;
+}
+
+async function hydratePackagedAssets(settings) {
+  const copiedModel = await copyPackagedModelIfMissing(settings);
+  const copiedEmbeddings = await copyPackagedEmbeddingsIfMissing(settings);
+
+  if (copiedModel || copiedEmbeddings) {
+    ensureDirectories(settings);
+  }
+}
+
 function createBackendLogStreams(logDir) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const logFile = path.join(logDir, `backend-${timestamp}.log`);
@@ -780,6 +838,8 @@ function registerIpcHandlers() {
 
 app.whenReady().then(async () => {
   appSettings = loadSettings();
+
+  await hydratePackagedAssets(appSettings);
 
   registerIpcHandlers();
   const mainWindow = createWindow();

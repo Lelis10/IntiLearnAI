@@ -43,6 +43,20 @@
       {
         "from": "../data",
         "to": "backend/data"
+      },
+      {
+        "from": "..",
+        "to": "backend",
+        "filter": [
+          "models/**/*"
+        ]
+      },
+      {
+        "from": "..",
+        "to": "backend",
+        "filter": [
+          "embeddings/**/*"
+        ]
       }
     ],
     "directories": {
